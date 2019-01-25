@@ -1,0 +1,248 @@
+---
+title: "Explore_Adrakey_method"
+author: "Perry de Valpine"
+date: "1/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Our goal here is to see if we can set up something like the Adrakey et al. methods in nimble.  We'll start writing concepts in R.
+
+# Data structures
+
+- Parameters are `alpha`, `beta`, `epsilon`.
+- Locations (coordinates) are `Coo`.
+    - These will be ordered in alignment with an ID vector.
+    - We probably want to pre-calculate matrix of distances, unless that becomes too large.
+- `Inf_time` is a vector of infection times.
+    - We need to choose our own protocol for ordering.  For example:
+- `Inf_index` is a vector of the plant indices aligned with `Inf_time`.
+
+# Set up toy data
+
+- We'll think of a 100x100 grid
+- Time run of 90 days
+- Tmax is duration of study.
+- We'll assume any plant not in Inf_times and Inf_indices was never infected. 
+```{r}
+## Eventually might make a function
+Tmax <- 9
+alpha <- 3
+beta <- 1.0
+epsilon <- 0.05
+grid <- 1:100
+Coo <- matrix(c(rep(grid, 100), rep(grid, each = 100)), ncol = 2)
+numPlants <- nrow(Coo)
+IDs <- 1:numPlants
+head(Coo)
+## Inf_times will be length of number of plants
+Inf_times <- rep(Tmax, numPlants)
+## Inf_indices will be only as long as the number of infecteds
+## Suppose time is measured in tenths of a day; "snapshot" observations that generate Y are taken every day
+## Using day fractions so I can use floor() and ceiling() functions to easily generate time intervals Y from Inf_times
+numInfections <- 5
+Inf_indices0 <- 530 + (1:numInfections) # Only the indices of infected plants
+Inf_times[Inf_indices0] <- c(3.5, 5.3, 6.1, 7.6, 4.9)
+## Use sorted Inf_times to sort Inf_indices == indices of all plants sorted by time of infection
+Inf_indices <- IDs[order(Inf_times)]
+
+## In Adrakey et al., Y is a time interval within which each plant was infected, 
+## with nrow = numPlants, ncol = 2, and 0's for plants never infected
+Y <- matrix(0, nrow = numPlants, ncol = 2) # Initialize Y
+Y[Inf_indices0,1] <- floor(Inf_times[Inf_indices0])
+Y[Inf_indices0,2] <- ceiling(Inf_times[Inf_indices0])
+
+## We might add observations explicitly.
+## Or we might build them into the samplers, as Adrakey et al seem to have done.
+
+
+
+#### Checking dimensions of data provided by Adrakey et al.
+adcoo <- read.table("Adrakey2017_code/Coo.txt")
+str(adcoo)
+adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
+str(adIndx_ind)
+adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+str(adInf_tim)
+adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
+str(adtime_interval)
+## Notes: All data objects have the same length, presumably numPlants
+## Combining data sets into a single data.frame "as is" would be incorrect,
+## because Indx_ind is sorted by infection order but Inf_tim is not sorted
+
+```
+
+# Set up function to calculate probability of infection history
+```{r}
+kernel <- function(distance, alpha) {
+    exp(-(distance / alpha))
+}
+
+
+logProbInfectionHistory <- function(alpha, beta, epsilon, Coo, Inf_times, Inf_indices, kernel, Tmax) {
+  numInfections <- sum(Inf_times < Tmax)
+  numPlants <- nrow(Coo)
+  ## Initialize S, P, and m
+  ## S for "summation", what's in the big parentheses of equation (1)
+  ## P represents what's outside the parentheses
+  S <- 0
+  ## We think that the Adrakey code missed epsilon for the first infected plant
+  ## Probabilities of 
+  for(iiSourcePlant in 1:numInfections) {
+    iSourcePlant <- Inf_indices[iiSourcePlant]
+    infTimeSource <- Inf_times[iSourcePlant]
+    CooSource <- Coo[iSourcePlant,1:2]
+    for(iTargetPlant in 1:numPlants) {
+      #infTimeTarget is either the infection time, or, if never infected, Tmax.
+      infTimeTarget <- Inf_times[iTargetPlant]
+      if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
+        d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
+        S <- S + beta * kernel(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
+      }
+    }
+  }
+  ## We'll move the epsilon term here:
+  S <- S + epsilon * sum(Inf_times)
+  ## Need to write the lambda[i] term here
+  ## Need only those plants that were infected by t[obs] and need to sort them by infection time
+  ## Combine Inf_times, Inf_indices, and coordinates of infected plants into a data.frame to keep track of plant indices after sorting
+  Infecteds <- data.frame(Inf_times = Inf_times[Inf_indices[1:numInfections]], 
+                          Inf_indices = Inf_indices[1:numInfections],
+                          Inf_Coo = Coo[Inf_indices[1:numInfections],]) 
+  Infecteds <- Infecteds[order(Infecteds$Inf_times),]
+  P <- log(epsilon) ## log force of infection for first infected plant
+  for(iTargetPlant in 2:numInfections) {
+      m <- 0
+      ##   for(iTargetPlant in 1:numInfections) {
+      for(iSourcePlant in 1:(iTargetPlant-1)) {
+          d <- sqrt(sum(Infecteds[iSourcePlant,3:4] - Infecteds[iTargetPlant,3:4])^2) 
+          m <- m + beta * kernel(distance = d, alpha = alpha)
+      }
+      P <- P + log(m + epsilon)
+  }
+  return(P-S)
+}
+
+(lltest <- logProbInfectionHistory(alpha = alpha, beta = beta, epsilon = epsilon, Coo = Coo, Inf_times = Inf_times, 
+                                   Inf_indices = Inf_indices, kernel = kernel, Tmax = Tmax))
+
+
+```
+
+# Nimble functions
+```{r}
+
+require(nimble)
+
+#### Kernel as nimbleFunction
+kernelnf <- nimbleFunction(
+    run = function(distance = double(0), alpha = double(0)) {
+        return(exp(-(distance / alpha)))
+        returnType(double())        
+    }
+    )
+
+#### nimbleFunction for Adrakey complete data likelihood equation
+## Based on Suppl. Material Eqn 1 and likelihood.h C++ code
+
+dDiseaseSpread <- nimbleFunction(
+  run = function(alpha = double(0), beta = double(0), epsilon = double(0), Coo = double(2), Inf_times = double(1), 
+                 kernelnf = kernelnf, Tmax = double(0), numPlants = double(0), numInfections = double(0), 
+                 log = integer(0, default = 0)) {
+    returnType(double(0))
+      # numInfections <- length(Inf_indices)
+      # numPlants <- nrow(Coo)
+      ## Initialize S, for "summation", what's in the big parentheses of equation (1)
+      S <- 0
+      ## Probabilities of 
+      for(iiSourcePlant in 1:numInfections) {
+        iSourcePlant <- Inf_indices[iiSourcePlant]
+        infTimeSource <- Inf_times[iSourcePlant]
+        CooSource <- Coo[iSourcePlant,1:2]
+        for(iTargetPlant in 1:numPlants) {
+          #infTimeTarget is either the infection time, or, if never infected, Tmax.
+          infTimeTarget <- Inf_times[iTargetPlant]
+          if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
+            d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
+            S <- S + beta * kernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
+          }
+        }
+      }
+      ## We'll move the epsilon term here:
+      S <- S + epsilon * sum(Inf_times[1:numPlants])
+      ## Need only those plants that were infected by t[obs] and need to sort them by infection time
+      ## Need function to sort Inf_times and Inf_indices within nimble
+      ## We think that the Adrakey code missed epsilon for the first infected plant
+      P <- log(epsilon) ## log force of infection for first infected plant
+      for(iTargetPlant in 2:numInfections) {
+        m <- 0
+        for(iSourcePlant in 1:(iTargetPlant-1)) {
+          d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
+          m <- m + beta * kernelnf(distance = d, alpha = alpha)
+        }
+        P <- P + log(m + epsilon)
+      }
+      logProb <- P-S
+      if(log) return(logProb)
+      else return(exp(logProb))
+})
+
+#### nimbleFunction for observations
+dDiseaseObs <- nimbleFunction(
+  run = function(x = double(0), Inf_indices = double(1), Inf_times = double(1), log = integer(0, default = 0)) {
+    returnType(double(0))
+    ## For now, make function return 1 if log = TRUE, 0 if log = FALSE
+    if(log) return(1)
+    else return(0)
+})
+
+## Register dDiseaseObs distribution
+registerDistributions(list(
+  dDiseaseObs = list(
+  BUGSdist = "dDiseaseObs(Inf_indices, Inf_times)",
+  discrete = TRUE
+  )
+))
+
+
+```
+
+
+# Nimble code to put everything together
+```{r}
+
+code <- nimbleCode({
+  alpha ~ dunif(0, 1000)
+  beta ~ dunif(0, 1000)
+  epsilon ~ dunif(0, 1000)
+  ## To do: in the code above, Inf_indices only includes infected plants, i.e., length(Inf_indices) == numInfections....
+  ## Need to decide if length(Inf_indices) should be numPlants instead
+  Inf_indices[1:numPlants] <- dDiseaseSpread(alpha = alpha, beta = beta, epsilon = epsilon, 
+                                                 Coo = Coo[1:numPlants, 1:2], Inf_times = Inf_times[1:numPlants], 
+                                                 kernelnf = kernelnf, Tmax = Tmax, numPlants = numPlants, 
+                                                 numInfections = numInfections, log = TRUE)
+  Y[1:numPlants,1:2] <- dDiseaseObs(Inf_indices[1:numPlants], Inf_times[1:numPlants], log = TRUE)
+})
+
+constants <- list(Tmax = Tmax,
+                  numInfections = numInfections,
+                  numPlants = numPlants,
+                  Inf_times = Inf_times,
+                  Coo = Coo)
+
+data <- list(Inf_indices = Inf_indices,
+             Y = Y)
+
+inits <- list(alpha = 0,
+              beta = 0,
+              epsilon = 0)
+
+Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
+                  
+                  
+                  
+```
+
