@@ -312,7 +312,10 @@ sampler_infection <- nimbleFunction(
     numInfections_node <- if(!is.null(control$numInfections_node))
       control$numInfections_node
     else stop("must provide numInfections_node to sampler_infection")
-    
+     Tmax_node <- if(!is.null(control$Tmax_node))
+      control$Tmax_node
+    else stop("must provide Tmax_node to sampler_infection")
+  
     numPlants <- length(model[[Inf_times_node]])
     
     ## optional control list entries
@@ -324,14 +327,14 @@ sampler_infection <- nimbleFunction(
       iPlant <- ceiling(runif(1,0,numPlants))
       if(time_intervals[iPlant, 2] > 2) {
         ## known symptomatic
-        update_known_symptomatic(iPlant)
+        update_infection_time(iPlant, time_intervals[iPlant, 1], time_intervals[iPlant, 2])
       } else {
         if(time_intervals[iPlant,1]==1 & time_intervals[iPlant, 2]==1) {
           ## never observed as symptomatic but has an imputed infection time
           ## within Dt (latent period) of Tmax.
           if(runif(1) < 0.5) {
             ## propose that it stays infected and gets a new time
-          ##  update_imputed_infection_time(iPlant)
+           update_infection_time(iPlant, model[[Tmax_node]] - model[[latent_period_node]], model[[Tmax_node]])
           } else {
             ## propose that it isn't infected.
           ##  propose_remove_infected(iPlant)
@@ -345,49 +348,82 @@ sampler_infection <- nimbleFunction(
     }
   },
  methods = list(
-   update_known_symptomatic = function(iPlant = double()) {
+   propose_add_infection = function(iPlant = double(), 
+                                    startPossibleTime = double(),
+                                    endPossibleTime = double()) {
+     ## put iPlant into the numInfections+1 position on Inf_indices
+     ## Then do a regular update_infection_time by with different acceptance probability
+     ## via the logProb_RJ argument
+     current_numInfections <- model[[numInfections_node]]
+     proposal_numInfections <- current_numInfections+1
+     model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
+     model[[numInfections_node]] <<- proposal_numInfections
+     logProb_RJ_contributions <- 
+   },
+   propose_remove_infection = function(iPlant = double,
+                                       startPossibleTime = double(),
+                                    endPossibleTime = double()) {
+      ## This can work similarly to propose_add_infection, 
+     ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
+     ## so the proposal is forced to be Tmax
+   },
+   update_infection_time = function(iPlant = double(),
+                                    startPossibleTime = double(),
+                                    endPossibleTime = double(),
+                                    logProb_RJ = double(0, default = 0)) {
     currentLogProb <- model$getLogProb(calcNodes)
-    currentPlaceInInfectionOrder <- 1
-    while(model[[Inf_indices_node]][currentPlaceInInfectionOrder] != iPlant
-          & currentPlaceInInfectionOrder <= numInfections) {
-      currentPlaceInInfectionOrder <- currentPlaceInInfectionOrder + 1
+    current_iSorted <- 1
+    while(model[[Inf_indices_node]][current_iSorted] != iPlant
+          & current_iSorted <= numInfections) {
+      current_iSorted <- current_iSorted + 1
     }
-    if(currentPlaceInInfectionOrder > numInfections)
-      print("Problem in update_known_symptomatic: currentPlaceInInfectionOrder > numInfections")
+    if(current_iSorted > numInfections)
+      print("Problem in update_known_symptomatic: current_iSorted > numInfections")
     
     current <- model[[Inf_times_node]][iPlant]
-    proposal <- runif(1, time_intervals[iPlant, 1], time_intervals[iPlant, 2])
+    ## startPossibleTime might equal endPossibleTime
+    proposal <- startPossibleTime + runif(1) * (endPossibleTime - startPossibleTime);
 
-    if(proposal < current) {    
-      proposedPlaceInInfectionOrder <- 1
-      while(model[[Inf_times_node]][model[[Inf_indices_node]][proposedPlaceInInfectionOrder] ] < proposal &
-            proposedPlaceInInfectionOrder <= currentPlaceInInfectionOrder) {
-        proposedPlaceInInfectionOrder <- proposedPlaceInInfectionOrder + 1
+    if(proposal < current) {
+      if(current_iSorted == 1) {
+        proposal_iSorted <- 1
+      } else {
+        proposal_iSorted <- current_iSorted
+        done <- FALSE
+        while(proposal_iSorted > 1 & !done)
+          if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted - 1] ] > proposal
+             proposal) {
+            proposal_iSorted <- proposal_iSorted - 1
+          } else {
+            done <- TRUE
+          }
       }
-      if(proposedPlaceInInfectionOrder > currentPlaceInInfectionOrder)
-        print("Problem in update_known_symptomatic: proposedPlaceInInfectionOrder > currentPlaceInInfectionOrder")
     } else {
-      proposedPlaceInInfectionOrder <- currentPlaceInInfectionOrder
-      while(model[[Inf_times_node]][model[[Inf_indices_node]][proposedPlaceInInfectionOrder + 1] ] < proposal &
-            proposedPlaceInInfectionOrder <= numInfections) {
-        proposedPlaceInInfectionOrder <- proposedPlaceInInfectionOrder + 1
+      proposal_iSorted <- current_iSorted
+      done <- FALSE
+      while(proposal_iSorted < numInfections & ! done) {
+        if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted + 1] ] < proposal) {
+          proposal_iSorted <- proposal_iSorted + 1
+        } else {
+          done <- TRUE
+        }
       }
     }
-    model[[Inf_times_node]][iPlant] <<- proposal
-    if(proposedPlaceInInfectionOrder != currentPlaceInInfectionOrder) {
-      if(proposal > current) {
-        moveStartFrom <-   currentPlaceInInfectionOrder + 1
-        moveEndFrom <- proposedPlaceInInfectionOrder
-        moveStartTo <- moveStartFrom - 1
-        moveEndTo <- moveEndFrom - 1
-      } else {
-        moveStartFrom <- proposedPlaceInInfectionOrder
-        moveEndFrom <- currentPlaceInInfectionOrder-1
+    if(proposal_iSorted != current_iSorted) {
+      if(proposal < current) {
+        moveStartFrom <- proposal_iSorted
+        moveEndFrom <- current_iSorted-1
         moveStartTo <- moveStartFrom + 1
         moveEndTo <- moveEndFrom + 1
+      } else {
+        moveStartFrom <- current_iSorted + 1
+        moveEndFrom <- proposal_iSorted
+        moveStartTo <- moveStartFrom - 1
+        moveEndTo <- moveEndFrom - 1
       }
       model[[Inf_times_node]][moveStartTo:moveEndTo] <<- model[[Inf_times_node]][moveStartFrom:moveEndFrom]
     }
+    model[[Inf_times_node]][iPlant] <<- proposal
     proposalLogProb <- model$calculate(calcNodes)
     print("Need to add accept/reject logic")
   },
