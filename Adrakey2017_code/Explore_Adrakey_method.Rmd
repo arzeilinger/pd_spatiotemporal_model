@@ -200,7 +200,7 @@ dDiseaseSpread <- nimbleFunction(
       else return(exp(logProb))
 })
 
-CdDiseaseSpread <- compileNimble(dDiseaseSpread)
+##CdDiseaseSpread <- compileNimble(dDiseaseSpread)
 
 #### nimbleFunction for observations
 dDiseaseObs <- nimbleFunction(
@@ -214,7 +214,7 @@ dDiseaseObs <- nimbleFunction(
     else return(1)
 })
 
-CdDiseaseObs <- compileNimble(dDiseaseObs)
+##CdDiseaseObs <- compileNimble(dDiseaseObs)
 
 ## Register dDiseaseObs distribution
 # registerDistributions(list(
@@ -261,7 +261,7 @@ code <- nimbleCode({
   alpha ~ dunif(0, 1000)
   beta ~ dunif(0, 1000)
   epsilon ~ dunif(0, 1000)
-  latent_period <- 0.5
+  latent_period <- 3
   ## numInfections and Inf_times are important but will be modified only by custom samplers,
   ## so they do not need their own declarations.
   Inf_indices[1:numPlants] ~ dDiseaseSpread(alpha = alpha, 
@@ -276,7 +276,8 @@ code <- nimbleCode({
                        Inf_times[1:numPlants])
 })
 
-constants <- list(Tmax = Tmax,
+constants <- list(## We don't want Tmax in constants because we need it to be a node,
+  ## but a scalar constant does not become a node in the model
                   numPlants = numPlants,
                   Coo = Coo)
 
@@ -286,11 +287,12 @@ inits <- list(alpha = 0.1,
               beta = 0.1,
               epsilon = 0.05,
               numInfections = numInfections,
+              Tmax = Tmax,
               Inf_times = Inf_times,
               Inf_indices = Inf_indices)
 
 Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
-Cmodel <- compileNimble(Rmodel)                  
+##Cmodel <- compileNimble(Rmodel)                  
 ```
 
 ```{r}
@@ -300,6 +302,7 @@ sampler_infection <- nimbleFunction(
   setup = function(model, mvSaved, target, control) {
     ## target should be the Inf_indices nodes
     ## time_intervals, latent_period_node, Inf_times_node, and numInfections_node are required
+    Inf_indices_node <- target
     time_intervals <- if(!is.null(control$time_intervals))
       control$time_intervals
     else stop("must provide time_intervals to sampler_infection")
@@ -315,12 +318,16 @@ sampler_infection <- nimbleFunction(
      Tmax_node <- if(!is.null(control$Tmax_node))
       control$Tmax_node
     else stop("must provide Tmax_node to sampler_infection")
-  
-    numPlants <- length(model[[Inf_times_node]])
-    
-    ## optional control list entries
-    trials <- if(!is.null(control$trials))  control$trials  else 10
-    calcNodes <- model$getDependencies(target)
+
+     ## optional control list entries
+     trials <- if(!is.null(control$trials))  control$trials  else 10
+     
+     numPlants <- length(model[[Inf_times_node]])
+     logProb_Inf_indices_node <- paste0("logProb_", Inf_indices_node)
+     # Conventional way to determine what needs to be calculated:   
+     calcNodes <- model$getDependencies(target)
+     # In this case, we are going to make strong assumptions about model structure anyway,
+     # So we could create dependencies by hand.
   },
   run = function() {
     for(k in 1:trials) {
@@ -337,42 +344,70 @@ sampler_infection <- nimbleFunction(
            update_infection_time(iPlant, model[[Tmax_node]] - model[[latent_period_node]], model[[Tmax_node]])
           } else {
             ## propose that it isn't infected.
-          ##  propose_remove_infected(iPlant)
+            propose_remove_infected(iPlant)
           }
         } else {
           ## never observed as symptomatic and does not have an imputed infection time,
           ## so propose that it does.
-        ##  propose_add_infected(iPlant)
+          propose_add_infected(iPlant)
         }
       }
     }
   },
  methods = list(
-   propose_add_infection = function(iPlant = double(), 
-                                    startPossibleTime = double(),
-                                    endPossibleTime = double()) {
+   propose_add_infected = function(iPlant = double()) {
      ## put iPlant into the numInfections+1 position on Inf_indices
      ## Then do a regular update_infection_time by with different acceptance probability
      ## via the logProb_RJ argument
      current_numInfections <- model[[numInfections_node]]
-     proposal_numInfections <- current_numInfections+1
-     model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
-     model[[numInfections_node]] <<- proposal_numInfections
-     logProb_RJ_contributions <- 
+     if(current_numInfections < numPlants) {
+       proposal_numInfections <- current_numInfections+1
+       model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
+       model[[numInfections_node]] <<- proposal_numInfections
+       startPossibleTime <- model[[Tmax_node]] - model[[latent_period_node]]
+       endPossibleTime <- model[[Tmax_node]]
+       logProb_RJ_contributions <- log(0.5) + log(endPossibleTime - startPossibleTime)
+       jumped <- update_infection_time(iPlant, startPossibleTime, endPossibleTime,
+                                       logProb_RJ_contributions)
+       ## Inf_indices and Inf_times will have been updated by update_infection_time.
+       ## It doesn't matter that iPlant was inserted beyond Inf_indices[numInfections], even if rejected.
+       ## But numInfections needs to be updated here
+       if(jumped) {
+         mvSaved[numInfections_node, 1] <<- proposal_numInfections
+       } else {
+         model[[numInfections_node]] <<- current_numInfections
+       }
+     }
    },
-   propose_remove_infection = function(iPlant = double,
-                                       startPossibleTime = double(),
-                                    endPossibleTime = double()) {
-      ## This can work similarly to propose_add_infection, 
+   propose_remove_infected = function(iPlant = double) {
+     ## This can work similarly to propose_add_infection, 
      ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
      ## so the proposal is forced to be Tmax
+     current_numInfections <- model[[numInfections_node]]
+     if(current_numInfections > 0) {
+       # These start and end possible times are for the logProb_RJ_contributions
+       startPossibleTime <- model[[Tmax_node]] - model[[latent_period_node]]
+       endPossibleTime <- model[[Tmax_node]]
+       logProb_RJ_contributions <- - log(0.5) - log(endPossibleTime - startPossibleTime)
+       ## We provide endPossibleTime for both start and end, so that the proposal will definitely be at the end.
+       jumped <- update_infection_time(iPlant, endPossibleTime, endPossibleTime,
+                                       logProb_RJ_contributions)
+       ## Inf_indices and Inf_times will have been updated by update_infection_time.
+       ## It doesn't matter that iPlant was inserted beyond Inf_indices[numInfections], even if rejected.
+       ## But numInfections needs to be updated here
+       if(jumped) {
+         mvSaved[numInfections_node, 1] <<- current_numInfections - 1
+       }
+     }
    },
    update_infection_time = function(iPlant = double(),
                                     startPossibleTime = double(),
                                     endPossibleTime = double(),
-                                    logProb_RJ = double(0, default = 0)) {
+                                    logProb_RJ_contributions = double(0, default = 0)) {
+     returnType(logical(0))
     currentLogProb <- model$getLogProb(calcNodes)
     current_iSorted <- 1
+    numInfections <- model[[numInfections_node]]
     while(model[[Inf_indices_node]][current_iSorted] != iPlant
           & current_iSorted <= numInfections) {
       current_iSorted <- current_iSorted + 1
@@ -391,8 +426,7 @@ sampler_infection <- nimbleFunction(
         proposal_iSorted <- current_iSorted
         done <- FALSE
         while(proposal_iSorted > 1 & !done)
-          if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted - 1] ] > proposal
-             proposal) {
+          if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted - 1] ] > proposal) {
             proposal_iSorted <- proposal_iSorted - 1
           } else {
             done <- TRUE
@@ -421,12 +455,37 @@ sampler_infection <- nimbleFunction(
         moveStartTo <- moveStartFrom - 1
         moveEndTo <- moveEndFrom - 1
       }
-      model[[Inf_times_node]][moveStartTo:moveEndTo] <<- model[[Inf_times_node]][moveStartFrom:moveEndFrom]
+      model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartFrom:moveEndFrom]
     }
+    model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
     model[[Inf_times_node]][iPlant] <<- proposal
     proposalLogProb <- model$calculate(calcNodes)
-    print("Need to add accept/reject logic")
-  },
+    logAcceptProb <- proposalLogProb - currentLogProb + logProb_RJ_contributions
+    if(decide(logAcceptProb)) {
+      ## accept
+      ## The updates after accepting or rejecting are customized to this particular model.
+      ## We need to be sure that if we change the model, we check if this code needs modification.
+      ## This code should move all modified parts of the model into the correspoding "1" row of mvSaved.
+      if(proposal_iSorted != current_iSorted) {
+        mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo] 
+      }
+      mvSaved[Inf_times_node, 1][iPlant] <<- proposal
+      mvSaved[Inf_indices_node, 1][proposal_iSorted] <<- iPlant
+      mvSaved[logProb_Inf_indices_node, 1][1] <<- model[[logProb_Inf_indices_node]][1]
+      jumped <- TRUE
+    } else {
+      ## reject
+      ## This code should restore all modified parts of the model to what they were upon entry to this method.
+      if(proposal_iSorted != current_iSorted) {
+        model[[Inf_indices_node]][moveStartFrom:moveEndFrom] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo]
+      }
+      model[[Inf_times_node]][iPlant] <<- current
+      model[[Inf_indices_node]][current_iSorted] <<- iPlant
+      model[[logProb_Inf_indices_node]] <<- mvSaved[logProb_Inf_indices_node, 1][1]
+      jumped <- FALSE
+    }
+    return(jumped)
+   },
   reset = function() {
   })
 )
@@ -444,9 +503,21 @@ MCMCconf$addSampler(type = 'sampler_infection',
                       Inf_times_node = 'Inf_times',
                       Inf_indices_node = 'Inf_indices',
                       numInfections_node = 'numInfections',
-                      latent_period_node = 'latent_period'
+                      latent_period_node = 'latent_period',
+                      Tmax_node = 'Tmax'
                     ))
 MCMC <- buildMCMC(MCMCconf)
+MCMCconf$printSamplers()
 MCMC$samplerFunctions[[1]]$trace("run", browser)
+MCMC$samplerFunctions[[1]]$trace("update_infection_time", browser)
+MCMC$samplerFunctions[[1]]$trace("propose_add_infected", browser)
+MCMC$samplerFunctions[[1]]$trace("propose_remove_infected", browser)
+
+## Once you run and get into a browser, ignore RStudio's highlighted code window.
+## It is not accurate about where you are.  Use the Console.
+## After it draws a random iPlant, you can set iPlant to whatever you want.
+## Same with other random draws: wait for it to pass that step, then set to whatever value you want to explore.
+## You have full access to Rmodel as "model" when in the browser
+## If you end up "Q"uitting from the browser, note that the model might be left in a messed up state.
 MCMC$run(1)
 ```
