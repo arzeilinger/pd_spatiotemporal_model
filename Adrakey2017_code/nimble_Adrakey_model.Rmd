@@ -1,0 +1,434 @@
+---
+title: "nimble_Adrakey_method"
+author: "Adam Zeiliinger and Perry de Valpine"
+date: "1/29/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Code to run the Adrakey et al. 2017 stochastic spatio-temporal epidemic model in nimble
+
+# Data structures
+
+- Parameters are `alpha`, `beta`, `epsilon`.
+- Locations (coordinates) are `Coo`.
+    - These will be ordered in alignment with an ID vector.
+    - We probably want to pre-calculate matrix of distances, unless that becomes too large.
+- `Inf_time` is a vector of infection times.
+    - We need to choose our own protocol for ordering.  For example:
+- `Inf_index` is a vector of the plant indices aligned with `Inf_time`.
+- `Y` is a 2-column matrix with a time interval within which each plant became infected, and zeroes for plants never infected before t[obs]
+
+# Set up toy data
+
+- We'll think of a 100x100 grid
+- Time run of 15 days
+- Precise infections times in Inf_time are expressed in fraction of days
+- Suppose that "snapshot" observations that generate the Y data set are taken once a day
+- Tmax is duration of study.
+- Inf_times, Inf_indices, and Y are all nrow = numPlants; but only Inf_indices are sorted by infection time
+
+#### Describe nimble functions
+```{r}
+
+require(nimble)
+
+#### Kernel as nimbleFunction
+kernelnf <- nimbleFunction(
+    run = function(distance = double(0), alpha = double(0)) {
+        return(exp(-(distance / alpha)))
+        returnType(double())        
+    }
+    )
+
+## ckernelnf <- compileNimble(kernelnf) ##ok
+
+#### nimbleFunction for Adrakey complete data likelihood equation
+## Based on Suppl. Material Eqn 1 and likelihood.h C++ code
+
+dDiseaseSpread <- nimbleFunction(
+  run = function(x = double(1),
+    alpha = double(0), 
+                 beta = double(0), 
+                 epsilon = double(0), 
+                 Coo = double(2), 
+                 Inf_times = double(1), # We assume these are sorted.
+                 Tmax = double(0),
+                 numPlants = double(0),
+                 numInfections = double(0), 
+                 log = integer(0, default = 0)) {
+    returnType(double(0))
+    ## x is Inf_indices
+      # numInfections <- length(Inf_indices)
+      # numPlants <- nrow(Coo)
+      ## Initialize S, for "summation", what's in the big parentheses of equation (1)
+      S <- 0
+      ## Probabilities of 
+      for(iiSourcePlant in 1:numInfections) {
+        iSourcePlant <- x[iiSourcePlant]
+        infTimeSource <- Inf_times[iSourcePlant]
+        CooSource <- Coo[iSourcePlant,1:2]
+        for(iTargetPlant in 1:numPlants) {
+          #infTimeTarget is either the infection time, or, if never infected, Tmax.
+          infTimeTarget <- Inf_times[iTargetPlant]
+          if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
+            d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
+            S <- S + beta * kernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
+          }
+        }
+      }
+      ## We'll move the epsilon term here:
+      S <- S + epsilon * sum(Inf_times[1:numPlants])
+      ## Need only those plants that were infected by t[obs] and need to sort them by infection time
+      ## Need function to sort Inf_times and Inf_indices within nimble
+      ## We think that the Adrakey code missed epsilon for the first infected plant
+      P <- log(epsilon) ## log force of infection for first infected plant
+      for(iTargetPlant in 2:numInfections) {
+        m <- 0
+        for(iSourcePlant in 1:(iTargetPlant-1)) {
+          d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
+          m <- m + beta * kernelnf(distance = d, alpha = alpha)
+        }
+        P <- P + log(m + epsilon)
+      }
+      logProb <- P-S
+      if(log) return(logProb)
+      else return(exp(logProb))
+})
+
+##CdDiseaseSpread <- compileNimble(dDiseaseSpread)
+
+#### nimbleFunction for observations
+dDiseaseObs <- nimbleFunction(
+  run = function(x = double(0), 
+                 Inf_indices = double(1),
+                 Inf_times = double(1),
+                 log = integer(0, default = 0)) {
+    returnType(double(0))
+    ## For now, make function return 1 if log = TRUE, 0 if log = FALSE
+    if(log) return(0)
+    else return(1)
+})
+
+##CdDiseaseObs <- compileNimble(dDiseaseObs)
+
+## Register dDiseaseObs distribution
+# registerDistributions(list(
+#   dDiseaseObs = list(
+#   BUGSdist = "dDiseaseObs(Inf_indices, Inf_times)",
+#   discrete = TRUE
+#   )
+# ))
+
+
+```
+
+
+#### Set up toy data set 
+```{r}
+Tmax <- 15
+alpha <- 3
+beta <- 1.0
+epsilon <- 0.05
+grid <- 1:100
+Coo <- matrix(c(rep(grid, 100), rep(grid, each = 100)), ncol = 2)
+numPlants <- nrow(Coo)
+IDs <- 1:numPlants
+head(Coo)
+## Inf_times will be length of number of plants
+Inf_times <- rep(Tmax, numPlants)
+## Inf_indices will be only as long as the number of infecteds
+## Suppose time is measured in tenths of a day; "snapshot" observations that generate Y are taken every day
+## Using day fractions so I can use floor() and ceiling() functions to easily generate time intervals Y from Inf_times
+numInfections <- 5
+Inf_indices0 <- 530 + (1:numInfections) # Only the indices of infected plants
+Inf_times[Inf_indices0] <- c(3.5, 5.3, 6.1, 7.6, 4.9)
+## Use sorted Inf_times to sort Inf_indices == indices of all plants sorted by time of infection
+Inf_indices <- IDs[order(Inf_times)]
+
+## In Adrakey et al., Y is a time interval within which each plant was infected, 
+## with nrow = numPlants, ncol = 2, and 0's for plants never infected
+Y <- matrix(0, nrow = numPlants, ncol = 2) # Initialize Y
+Y[Inf_indices0,1] <- floor(Inf_times[Inf_indices0])
+Y[Inf_indices0,2] <- ceiling(Inf_times[Inf_indices0])
+
+```
+
+
+# Nimble code to put everything together
+```{r}
+
+code <- nimbleCode({
+  alpha ~ dunif(0, 1000)
+  beta ~ dunif(0, 1000)
+  epsilon ~ dunif(0, 1000)
+  latent_period <- 3
+  ## numInfections and Inf_times are important but will be modified only by custom samplers,
+  ## so they do not need their own declarations.
+  Inf_indices[1:numPlants] ~ dDiseaseSpread(alpha = alpha, 
+                                            beta = beta,
+                                            epsilon = epsilon, 
+                                            Coo = Coo[1:numPlants, 1:2], 
+                                            Inf_times = Inf_times[1:numPlants], 
+                                            Tmax = Tmax,
+                                            numPlants = numPlants, 
+                                            numInfections = numInfections)
+  Ydummy ~ dDiseaseObs(Inf_indices[1:numPlants],
+                       Inf_times[1:numPlants])
+})
+
+constants <- list(## We don't want Tmax in constants because we need it to be a node,
+  ## but a scalar constant does not become a node in the model
+                  numPlants = numPlants,
+                  Coo = Coo)
+
+data <- list(Ydummy = 1)
+
+inits <- list(alpha = 0.1,
+              beta = 0.1,
+              epsilon = 0.05,
+              numInfections = numInfections,
+              Tmax = Tmax,
+              Inf_times = Inf_times,
+              Inf_indices = Inf_indices)
+
+Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
+##Cmodel <- compileNimble(Rmodel)                  
+```
+
+```{r}
+sampler_infection <- nimbleFunction(
+  name = 'sampler_infection',
+  contains = sampler_BASE,
+  setup = function(model, mvSaved, target, control) {
+    ## target should be the Inf_indices nodes
+    ## time_intervals, latent_period_node, Inf_times_node, and numInfections_node are required
+    Inf_indices_node <- target
+    time_intervals <- if(!is.null(control$time_intervals))
+      control$time_intervals
+    else stop("must provide time_intervals to sampler_infection")
+    latent_period_node <- if(!is.null(control$latent_period_node))
+      control$latent_period_node
+    else stop("must provide latent_period_node to sampler_infection")
+    Inf_times_node <- if(!is.null(control$Inf_times_node))
+      control$Inf_times_node
+    else stop("must provide Inf_times_node to sampler_infection")
+    numInfections_node <- if(!is.null(control$numInfections_node))
+      control$numInfections_node
+    else stop("must provide numInfections_node to sampler_infection")
+     Tmax_node <- if(!is.null(control$Tmax_node))
+      control$Tmax_node
+    else stop("must provide Tmax_node to sampler_infection")
+
+     ## optional control list entries
+     trials <- if(!is.null(control$trials))  control$trials  else 10
+     
+     numPlants <- length(model[[Inf_times_node]])
+     logProb_Inf_indices_node <- paste0("logProb_", Inf_indices_node)
+     # Conventional way to determine what needs to be calculated:   
+     calcNodes <- model$getDependencies(target)
+     # In this case, we are going to make strong assumptions about model structure anyway,
+     # So we could create dependencies by hand.
+  },
+  run = function() {
+    for(k in 1:trials) {
+      iPlant <- ceiling(runif(1,0,numPlants))
+      if(time_intervals[iPlant, 2] > 2) {
+        ## known symptomatic
+        update_infection_time(iPlant, time_intervals[iPlant, 1], time_intervals[iPlant, 2])
+      } else {
+        if(time_intervals[iPlant,1]==1 & time_intervals[iPlant, 2]==1) {
+          ## never observed as symptomatic but has an imputed infection time
+          ## within Dt (latent period) of Tmax.
+          if(runif(1) < 0.5) {
+            ## propose that it stays infected and gets a new time
+           update_infection_time(iPlant, model[[Tmax_node]] - model[[latent_period_node]], model[[Tmax_node]])
+          } else {
+            ## propose that it isn't infected.
+            propose_remove_infected(iPlant)
+          }
+        } else {
+          ## never observed as symptomatic and does not have an imputed infection time,
+          ## so propose that it does.
+          propose_add_infected(iPlant)
+        }
+      }
+    }
+  },
+ methods = list(
+   propose_add_infected = function(iPlant = double()) {
+     ## put iPlant into the numInfections+1 position on Inf_indices
+     ## Then do a regular update_infection_time by with different acceptance probability
+     ## via the logProb_RJ argument
+     current_numInfections <- model[[numInfections_node]]
+     if(current_numInfections < numPlants) {
+       proposal_numInfections <- current_numInfections+1
+       model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
+       model[[numInfections_node]] <<- proposal_numInfections
+       startPossibleTime <- model[[Tmax_node]] - model[[latent_period_node]]
+       endPossibleTime <- model[[Tmax_node]]
+       logProb_RJ_contributions <- log(0.5) + log(endPossibleTime - startPossibleTime)
+       jumped <- update_infection_time(iPlant, startPossibleTime, endPossibleTime,
+                                       logProb_RJ_contributions)
+       ## Inf_indices and Inf_times will have been updated by update_infection_time.
+       ## It doesn't matter that iPlant was inserted beyond Inf_indices[numInfections], even if rejected.
+       ## But numInfections needs to be updated here
+       if(jumped) {
+         mvSaved[numInfections_node, 1] <<- proposal_numInfections
+       } else {
+         model[[numInfections_node]] <<- current_numInfections
+       }
+     }
+   },
+   propose_remove_infected = function(iPlant = double) {
+     ## This can work similarly to propose_add_infection, 
+     ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
+     ## so the proposal is forced to be Tmax
+     current_numInfections <- model[[numInfections_node]]
+     if(current_numInfections > 0) {
+       # These start and end possible times are for the logProb_RJ_contributions
+       startPossibleTime <- model[[Tmax_node]] - model[[latent_period_node]]
+       endPossibleTime <- model[[Tmax_node]]
+       logProb_RJ_contributions <- - log(0.5) - log(endPossibleTime - startPossibleTime)
+       ## We provide endPossibleTime for both start and end, so that the proposal will definitely be at the end.
+       jumped <- update_infection_time(iPlant, endPossibleTime, endPossibleTime,
+                                       logProb_RJ_contributions)
+       ## Inf_indices and Inf_times will have been updated by update_infection_time.
+       ## It doesn't matter that iPlant was inserted beyond Inf_indices[numInfections], even if rejected.
+       ## But numInfections needs to be updated here
+       if(jumped) {
+         mvSaved[numInfections_node, 1] <<- current_numInfections - 1
+       }
+     }
+   },
+   update_infection_time = function(iPlant = double(),
+                                    startPossibleTime = double(),
+                                    endPossibleTime = double(),
+                                    logProb_RJ_contributions = double(0, default = 0)) {
+     returnType(logical(0))
+    currentLogProb <- model$getLogProb(calcNodes)
+    current_iSorted <- 1
+    numInfections <- model[[numInfections_node]]
+    while(model[[Inf_indices_node]][current_iSorted] != iPlant
+          & current_iSorted <= numInfections) {
+      current_iSorted <- current_iSorted + 1
+    }
+    if(current_iSorted > numInfections)
+      print("Problem in update_known_symptomatic: current_iSorted > numInfections")
+    
+    current <- model[[Inf_times_node]][iPlant]
+    ## startPossibleTime might equal endPossibleTime
+    proposal <- startPossibleTime + runif(1) * (endPossibleTime - startPossibleTime);
+
+    if(proposal < current) {
+      if(current_iSorted == 1) {
+        proposal_iSorted <- 1
+      } else {
+        proposal_iSorted <- current_iSorted
+        done <- FALSE
+        while(proposal_iSorted > 1 & !done)
+          if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted - 1] ] > proposal) {
+            proposal_iSorted <- proposal_iSorted - 1
+          } else {
+            done <- TRUE
+          }
+      }
+    } else {
+      proposal_iSorted <- current_iSorted
+      done <- FALSE
+      while(proposal_iSorted < numInfections & ! done) {
+        if(model[[Inf_times_node]][model[[Inf_indices_node]][proposal_iSorted + 1] ] < proposal) {
+          proposal_iSorted <- proposal_iSorted + 1
+        } else {
+          done <- TRUE
+        }
+      }
+    }
+    if(proposal_iSorted != current_iSorted) {
+      if(proposal < current) {
+        moveStartFrom <- proposal_iSorted
+        moveEndFrom <- current_iSorted-1
+        moveStartTo <- moveStartFrom + 1
+        moveEndTo <- moveEndFrom + 1
+      } else {
+        moveStartFrom <- current_iSorted + 1
+        moveEndFrom <- proposal_iSorted
+        moveStartTo <- moveStartFrom - 1
+        moveEndTo <- moveEndFrom - 1
+      }
+      model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartFrom:moveEndFrom]
+    }
+    model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
+    model[[Inf_times_node]][iPlant] <<- proposal
+    proposalLogProb <- model$calculate(calcNodes)
+    logAcceptProb <- proposalLogProb - currentLogProb + logProb_RJ_contributions
+    if(decide(logAcceptProb)) {
+      ## accept
+      ## The updates after accepting or rejecting are customized to this particular model.
+      ## We need to be sure that if we change the model, we check if this code needs modification.
+      ## This code should move all modified parts of the model into the correspoding "1" row of mvSaved.
+      if(proposal_iSorted != current_iSorted) {
+        mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo] 
+      }
+      mvSaved[Inf_times_node, 1][iPlant] <<- proposal
+      mvSaved[Inf_indices_node, 1][proposal_iSorted] <<- iPlant
+      mvSaved[logProb_Inf_indices_node, 1][1] <<- model[[logProb_Inf_indices_node]][1]
+      jumped <- TRUE
+    } else {
+      ## reject
+      ## This code should restore all modified parts of the model to what they were upon entry to this method.
+      if(proposal_iSorted != current_iSorted) {
+        model[[Inf_indices_node]][moveStartFrom:moveEndFrom] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo]
+      }
+      model[[Inf_times_node]][iPlant] <<- current
+      model[[Inf_indices_node]][current_iSorted] <<- iPlant
+      model[[logProb_Inf_indices_node]] <<- mvSaved[logProb_Inf_indices_node, 1][1]
+      jumped <- FALSE
+    }
+    return(jumped)
+   },
+  reset = function() {
+  })
+)
+```
+
+Make uncompiled MCMC for debugging
+
+```{r}
+## Empty configuration
+MCMCconf <- configureMCMC(Rmodel, nodes = NULL)
+MCMCconf$addSampler(type = 'sampler_infection', 
+                    target = 'Inf_indices',
+                    control = list(
+                      time_intervals = Y,
+                      Inf_times_node = 'Inf_times',
+                      Inf_indices_node = 'Inf_indices',
+                      numInfections_node = 'numInfections',
+                      latent_period_node = 'latent_period',
+                      Tmax_node = 'Tmax'
+                    ))
+MCMC <- buildMCMC(MCMCconf)
+MCMCconf$printSamplers()
+MCMC$samplerFunctions[[1]]$trace("run", browser)
+MCMC$samplerFunctions[[1]]$trace("update_infection_time", browser)
+MCMC$samplerFunctions[[1]]$trace("propose_add_infected", browser)
+MCMC$samplerFunctions[[1]]$trace("propose_remove_infected", browser)
+
+## Once you run and get into a browser, ignore RStudio's highlighted code window.
+## It is not accurate about where you are.  Use the Console.
+## After it draws a random iPlant, you can set iPlant to whatever you want.
+## Same with other random draws: wait for it to pass that step, then set to whatever value you want to explore.
+## You have full access to Rmodel as "model" when in the browser
+## If you end up "Q"uitting from the browser, note that the model might be left in a messed up state.
+MCMC$run(1)
+```
+
+
+
+```{r}
+
+```
+
