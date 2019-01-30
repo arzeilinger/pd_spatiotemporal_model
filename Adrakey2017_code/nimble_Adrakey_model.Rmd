@@ -129,7 +129,7 @@ dDiseaseObs <- nimbleFunction(
 
 #### Set up toy data set 
 ```{r}
-Tmax <- 15
+Tmax <- 18
 alpha <- 3
 beta <- 1.0
 epsilon <- 0.05
@@ -143,9 +143,9 @@ Inf_times <- rep(Tmax, numPlants)
 ## Inf_indices will be only as long as the number of infecteds
 ## Suppose time is measured in tenths of a day; "snapshot" observations that generate Y are taken every day
 ## Using day fractions so I can use floor() and ceiling() functions to easily generate time intervals Y from Inf_times
-numInfections <- 5
-Inf_indices0 <- 530 + (1:numInfections) # Only the indices of infected plants
-Inf_times[Inf_indices0] <- c(3.5, 5.3, 6.1, 7.6, 4.9)
+numInfections <- 20
+Inf_indices0 <- 400 + (1:numInfections) # Only the indices of infected plants
+Inf_times[Inf_indices0] <- runif(numInfections, min = 1, max = Tmax-3)
 ## Use sorted Inf_times to sort Inf_indices == indices of all plants sorted by time of infection
 Inf_indices <- IDs[order(Inf_times)]
 
@@ -155,11 +155,25 @@ Y <- matrix(0, nrow = numPlants, ncol = 2) # Initialize Y
 Y[Inf_indices0,1] <- floor(Inf_times[Inf_indices0])
 Y[Inf_indices0,2] <- ceiling(Inf_times[Inf_indices0])
 
+
+#### Try the data sets supplied by Adrakey as a toy data set
+adcoo <- read.table("Adrakey2017_code/Coo.txt")
+str(adcoo)
+adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
+str(adIndx_ind)
+adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+str(adInf_tim)
+adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
+str(adtime_interval)
+
+
 ```
 
 
 # Nimble code to put everything together
 ```{r}
+
+library(nimble)
 
 code <- nimbleCode({
   alpha ~ dunif(0, 1000)
@@ -199,6 +213,8 @@ Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = i
 ##Cmodel <- compileNimble(Rmodel)                  
 ```
 
+
+#### MCMC Samplers
 ```{r}
 sampler_infection <- nimbleFunction(
   name = 'sampler_infection',
