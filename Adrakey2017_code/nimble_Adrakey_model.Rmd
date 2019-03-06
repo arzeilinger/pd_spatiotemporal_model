@@ -489,10 +489,10 @@ MCMCconf$addSampler(type = 'sampler_infection',
                     ))
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
-MCMC$samplerFunctions[[1]]$trace("run", browser)
-MCMC$samplerFunctions[[1]]$trace("update_infection_time", browser)
-MCMC$samplerFunctions[[1]]$trace("propose_add_infected", browser)
-MCMC$samplerFunctions[[1]]$trace("propose_remove_infected", browser)
+# MCMC$samplerFunctions[[1]]$trace("run", browser)
+# MCMC$samplerFunctions[[1]]$trace("update_infection_time", browser)
+# MCMC$samplerFunctions[[1]]$trace("propose_add_infected", browser)
+# MCMC$samplerFunctions[[1]]$trace("propose_remove_infected", browser)
 
 ## Once you run and get into a browser, ignore RStudio's highlighted code window.
 ## It is not accurate about where you are.  Use the Console.
@@ -500,7 +500,15 @@ MCMC$samplerFunctions[[1]]$trace("propose_remove_infected", browser)
 ## Same with other random draws: wait for it to pass that step, then set to whatever value you want to explore.
 ## You have full access to Rmodel as "model" when in the browser
 ## If you end up "Q"uitting from the browser, note that the model might be left in a messed up state.
-MCMC$run(1)
+
+## To enter browser and run through MCMC algorithm 
+# MCMC$run(1)
+
+#### To run many MCMC iterations for debugging purposes
+set.seed(1)
+
+MCMC$run(niter = 10000)
+
 ```
 
 
