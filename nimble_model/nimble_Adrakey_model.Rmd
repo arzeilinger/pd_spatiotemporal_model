@@ -306,8 +306,9 @@ sampler_infection <- nimbleFunction(
      ## Then do a regular update_infection_time by with different acceptance probability
      ## via the logProb_RJ argument
      if(!check_system()) {
-       print("Found the system out of valid state entering propose_add_infected")
-       browser()
+       #print("Found the system out of valid state entering propose_add_infected")
+       stop("Found the system out of valid state entering propose_add_infected")
+       #browser()
      }
      current_numInfections <- model[[numInfections_node]]
      if(current_numInfections < numPlants) {
@@ -476,7 +477,7 @@ Make uncompiled MCMC for debugging
 
 ```{r}
 ## Empty configuration
-MCMCconf <- configureMCMC(Rmodel, nodes = NULL) #c("alpha", "beta", "epsilon"))
+MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection', 
                     target = 'Inf_indices',
                     control = list(
@@ -523,6 +524,7 @@ summary(samples_II)
 samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
 summary(samples_IT)
 
+plot(samples_IT[1:10000,49])
 
 ```
 
