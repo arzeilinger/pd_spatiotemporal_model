@@ -487,6 +487,7 @@ MCMCconf$addSampler(type = 'sampler_infection',
                       latent_period_node = 'latent_period',
                       Tmax_node = 'Tmax'
                     ))
+MCMCconf$addMonitors('Inf_times', 'Inf_indices')
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 # MCMC$samplerFunctions[[1]]$trace("run", browser)
@@ -507,7 +508,21 @@ MCMCconf$printSamplers()
 #### To run many MCMC iterations for debugging purposes
 set.seed(1)
 
-MCMC$run(niter = 10000)
+samples <- MCMC$run(niter = 100)
+
+## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
+samples <- runMCMC(MCMC, niter = 100000, nchains=1)
+saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
+
+## Were Inf_indices changed by MCMC?
+library(dplyr)
+samples_II <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_indices"))
+summary(samples_II)
+
+## Were Inf_times changed by MCMC?
+samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
+summary(samples_IT)
+
 
 ```
 
