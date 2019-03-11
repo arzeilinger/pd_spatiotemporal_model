@@ -52,52 +52,52 @@ kernelnf <- nimbleFunction(
 dDiseaseSpread <- nimbleFunction(
   run = function(x = double(1),
     alpha = double(0), 
-                 beta = double(0), 
-                 epsilon = double(0), 
-                 Coo = double(2), 
-                 Inf_times = double(1), # We assume these are sorted.
-                 Tmax = double(0),
-                 numPlants = double(0),
-                 numInfections = double(0), 
-                 log = integer(0, default = 0)) {
+    beta = double(0), 
+    epsilon = double(0), 
+    Coo = double(2), 
+    Inf_times = double(1), # We assume these are sorted.
+    Tmax = double(0),
+    numPlants = double(0),
+    numInfections = double(0), 
+    log = integer(0, default = 0)) {
     returnType(double(0))
     ## x is Inf_indices
-      # numInfections <- length(Inf_indices)
-      # numPlants <- nrow(Coo)
-      ## Initialize S, for "summation", what's in the big parentheses of equation (1)
-      S <- 0
-      ## Probabilities of 
-      for(iiSourcePlant in 1:numInfections) {
-        iSourcePlant <- x[iiSourcePlant]
-        infTimeSource <- Inf_times[iSourcePlant]
-        CooSource <- Coo[iSourcePlant,1:2]
-        for(iTargetPlant in 1:numPlants) {
-          #infTimeTarget is either the infection time, or, if never infected, Tmax.
-          infTimeTarget <- Inf_times[iTargetPlant]
-          if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
-            d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
-            S <- S + beta * kernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
-          }
+    # numInfections <- length(Inf_indices)
+    # numPlants <- nrow(Coo)
+    ## Initialize S, for "summation", what's in the big parentheses of equation (1)
+    S <- 0
+    ## Probabilities of 
+    for(iiSourcePlant in 1:numInfections) {
+      iSourcePlant <- x[iiSourcePlant]
+      infTimeSource <- Inf_times[iSourcePlant]
+      CooSource <- Coo[iSourcePlant,1:2]
+      for(iTargetPlant in 1:numPlants) {
+        #infTimeTarget is either the infection time, or, if never infected, Tmax.
+        infTimeTarget <- Inf_times[iTargetPlant]
+        if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
+          d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
+          S <- S + beta * kernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
         }
       }
-      ## We'll move the epsilon term here:
-      S <- S + epsilon * sum(Inf_times[1:numPlants])
-      ## Need only those plants that were infected by t[obs] and need to sort them by infection time
-      ## Need function to sort Inf_times and Inf_indices within nimble
-      ## We think that the Adrakey code missed epsilon for the first infected plant
-      P <- log(epsilon) ## log force of infection for first infected plant
-      for(iTargetPlant in 2:numInfections) {
-        m <- 0
-        for(iSourcePlant in 1:(iTargetPlant-1)) {
-          d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
-          m <- m + beta * kernelnf(distance = d, alpha = alpha)
-        }
-        P <- P + log(m + epsilon)
+    }
+    ## We'll move the epsilon term here:
+    S <- S + epsilon * sum(Inf_times[1:numPlants])
+    ## Need only those plants that were infected by t[obs] and need to sort them by infection time
+    ## Need function to sort Inf_times and Inf_indices within nimble
+    ## We think that the Adrakey code missed epsilon for the first infected plant
+    P <- log(epsilon) ## log force of infection for first infected plant
+    for(iTargetPlant in 2:numInfections) {
+      m <- 0
+      for(iSourcePlant in 1:(iTargetPlant-1)) {
+        d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
+        m <- m + beta * kernelnf(distance = d, alpha = alpha)
       }
-      logProb <- P-S
-      if(log) return(logProb)
-      else return(exp(logProb))
-})
+      P <- P + log(m + epsilon)
+    }
+    logProb <- P-S
+    if(log) return(logProb)
+    else return(exp(logProb))
+  })
 
 ##CdDiseaseSpread <- compileNimble(dDiseaseSpread)
 
@@ -306,7 +306,6 @@ sampler_infection <- nimbleFunction(
      ## Then do a regular update_infection_time by with different acceptance probability
      ## via the logProb_RJ argument
      if(!check_system()) {
-       #print("Found the system out of valid state entering propose_add_infected")
        stop("Found the system out of valid state entering propose_add_infected")
        #browser()
      }
