@@ -4,21 +4,33 @@
 
 rm(list = ls())
 
-#### Simple kernel function
+#### Kernel functions
+## Simple exponential kernel
 kernel <- function(distance, alpha) {
   exp(-(distance / alpha))
 }
 
+## Normalized exponential kernel
+## Derived in Neri et al. 2014
+## Used in Adrakey et al. 2017
+normalizedKernel <- function(distance, alpha) {
+  (1/(2*pi*distance*alpha))*exp(-(distance / alpha))
+}
+
+
 #### Initial values setup
-Tmax <- 25
-alpha <- 3
-beta <- 1.0
-epsilon <- 0.05
+Tmax <- 100
+## Parameter values used in Adrakey et al. 2017 simulations
+## Values are in units day-1 km2
+alpha <- 0.08 # km^2
+beta <- 7e-6 # day^-1 km^2
+epsilon <- 5e-5 # day^-1
 grid <- 1:10
 Coo <- matrix(c(rep(grid, 10), rep(grid, each = 10)), ncol = 2)
 numPlants <- nrow(Coo)
 IDs <- 1:numPlants
 head(Coo)
+
 ## Setting up Inf_times and Inf_indices
 ## Start with infection times all at Tmax
 Inf_times <- rep(Tmax, numPlants)
@@ -53,16 +65,13 @@ for(t in 1:Tmax){
         ## Calculate d for each Infected plant
         d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
         ## Calculate the dispersal kernel based on each d and then sum over all kernels
-        m <- m + kernel(distance = d, alpha = alpha)
+        ## Using Neri et al. 2014 normalized exponential kernel
+        ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
+        m <- m + normalizedKernel(distance = d, alpha = alpha)
       }
     }
     ## Force of infection for iiSusceptible plant
     lambdaii <- beta*m + epsilon
-    ## Catch errors and debug
-    # if(lambdaii > 1 | lambdaii < 0) {
-    #   print("lambda calculation nonsense; rbinom will crash")
-    #   browser()
-    # }
     ## Infection status of iiSusceptible based on lambda
     infectionStatusii <- rbinom(1, 1, lambdaii) 
     ## If iiSusceptible plant is infected, generate a random infection time between t and t+1 time points
