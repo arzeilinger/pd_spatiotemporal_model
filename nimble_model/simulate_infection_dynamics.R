@@ -21,27 +21,7 @@ normalizedKernel <- function(distance, alpha) {
 }
 
 
-#### Initial values setup
-
-## Parameter values used in Adrakey et al. 2017 simulations
-## Values are in units day-1 km2
-alpha <- 0.08 # km^2
-beta <- 7e-6 # day^-1 km^2
-epsilon <- 5e-5 # day^-1
-
-## Alternative parameter values
-alpha <- 0.08
-beta <- 0.3
-epsilon <- 0.05
-
-Tmax <- 50
-grid <- 1:10
-Coo <- matrix(c(rep(grid, 10), rep(grid, each = 10)), ncol = 2)
-
-
-
-#### Function to simulate infection dynamics given values of alpha, beta, epsilon, and Tmax
-
+#### Function to simulate infection dynamics given values of alpha, beta, epsilon, Tmax, and Coo
 simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon, Tmax = Tmax, Coo = Coo){
   #### Setting up Inf_times and Inf_indices
   ## Assumes already created a grid of hosts
@@ -87,7 +67,11 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
       }
       ## Force of infection for iiSusceptible plant
       lambdaii <- beta*m + epsilon
-      ## Infection status of iiSusceptible based on lambda
+      ## From Adrakey paper:
+      ## P(ii infected in [t, t+dt]) = lambdaii*dt + o(dt)
+      ## Where dt = period between discrete time points t and t+1
+      ## Assuming that infection status of iiSusceptible is a Bernoulli trial with prob = lambdaii
+      ## lambdaii only stays bounded by [0,1] if normalizedKernel is used
       infectionStatusii <- rbinom(1, 1, lambdaii) 
       ## If iiSusceptible plant is infected, generate a random infection time between t and t+1 time points
       if(infectionStatusii == 1) {
@@ -100,8 +84,30 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
 }
 
 
-testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
+#### Initial values setup
 
+## Parameter values used in Adrakey et al. 2017 simulations
+## Units are included as comments
+alpha <- 0.08 # km^2
+beta <- 7e-6 # day^-1 km^2
+epsilon <- 5e-5 # day^-1
+
+## Alternative parameter values
+alpha <- 0.08
+beta <- 0.5
+epsilon <- 0.01
+
+## Other values
+Tmax <- 100
+## Number of rows and columns -- will always make the plant population a square
+## Deviating from a square causes a problem with making time slice rasters -- not sure why
+nrc <- 20
+grid <- 1:nrc
+Coo <- matrix(c(rep(grid, nrc), rep(grid, each = nrc)), ncol = 2)
+
+
+## Run simulateDiseaseSpread
+testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 (Inf_times <- testSpread$Inf_times)
 
 
@@ -111,7 +117,7 @@ testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 ## Produce maps of infection status based on different time points t
 
 ## Vector of time points to plot
-tcuts <- floor(seq(1,50,length.out=6))
+tcuts <- floor(seq(1,100,length.out=9))
 
 
 #### Produce raster stack of infection status at a series of time points
@@ -129,7 +135,6 @@ CooXmx <- max(CooColumns)
 
 ## Empty raster stack
 diseaseRasterList <- vector("list", length(tcuts))
-diseaseRasterStack <- stack()
 
 for(i in 1:length(tcuts)){
   ## Produce vector of infection status: 1 = infected, 0 = susceptible at a given time point t
