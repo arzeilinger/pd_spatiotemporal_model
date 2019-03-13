@@ -7,92 +7,15 @@ rm(list = ls())
 my.packages <- c("ggplot2", "dplyr", "tidyr", "raster")
 lapply(my.packages, require, character.only = TRUE)
 
-#### Kernel functions
-## Simple exponential kernel
-kernel <- function(distance, alpha) {
-  exp(-(distance / alpha))
-}
-
-## Normalized exponential kernel
-## Derived in Neri et al. 2014
-## Used in Adrakey et al. 2017
-normalizedKernel <- function(distance, alpha) {
-  (1/(2*pi*distance*alpha))*exp(-(distance / alpha))
-}
+#### Load simulation function and dispersal kernel functions
+source("R_functions/simulateDiseaseSpread.R")
+source("R_functions/dispersal_kernel_functions.R")
 
 
-#### Function to simulate infection dynamics given values of alpha, beta, epsilon, Tmax, and Coo
-simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon, Tmax = Tmax, Coo = Coo){
-  #### Setting up Inf_times and Inf_indices
-  ## Assumes already created a grid of hosts
-  ## Calculate total number of plants and vector of plant IDs
-  numPlants <- nrow(Coo)
-  IDs <- 1:numPlants
-  ## Start with infection times all at Tmax
-  Inf_times <- rep(Tmax, numPlants)
-  ## For now, start with 1 random plant infected prior to t = 1
-  ## Should make initial infection dependent on epsilon?
-  initial_infected_ind <- sample(1:nrow(Coo), 1)
-  ## Update Inf_times and Inf_indiceswith initial infected
-  Inf_times[initial_infected_ind] <- runif(1)
-  Inf_indices <- IDs[order(Inf_times)]
-  ## Nested for loops of t, Susceptible plants, and Infected plants
-  for(t in 1:Tmax){
-    ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
-    Inf_indices <- IDs[order(Inf_times)]
-    Infected_ind <- which(Inf_times < Tmax)
-    Infected_times <- Inf_times[Infected_ind]
-    Susceptible_ind <- which(Inf_times == Tmax)
-    Susceptible_times <- Inf_times[Susceptible_ind]
-    ## Summaries of infections and susceptibles
-    numInfections <- length(Infected_times)
-    numSusceptibles <- length(Susceptible_times)
-    ## Loop over susceptible plants
-    for(iiSusceptible in Susceptible_ind){
-      infTimeSusceptible <- Inf_times[iiSusceptible]
-      CooSusceptible <- Coo[iiSusceptible,1:2]
-      ## (Re)set dispersal kernel summation to 0
-      m <- 0
-      ## Loop over infected plants to get dispersal kernel from each Infected to a given Susceptible
-      for(iInfected in Infected_ind) {
-        infTimeInfected <- Inf_times[iInfected]
-        if(infTimeSusceptible > infTimeInfected) { ## This avoids Target plant being same as Source
-          ## Calculate d for each Infected plant
-          d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
-          ## Calculate the dispersal kernel based on each d and then sum over all kernels
-          ## Using Neri et al. 2014 normalized exponential kernel
-          ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
-          m <- m + normalizedKernel(distance = d, alpha = alpha)
-        }
-      }
-      ## Force of infection for iiSusceptible plant
-      lambdaii <- beta*m + epsilon
-      ## From Adrakey paper:
-      ## P(ii infected in [t, t+dt]) = lambdaii*dt + o(dt)
-      ## Where dt = period between discrete time points t and t+1
-      ## Assuming that infection status of iiSusceptible is a Bernoulli trial with prob = lambdaii
-      ## lambdaii only stays bounded by [0,1] if normalizedKernel is used
-      infectionStatusii <- rbinom(1, 1, lambdaii) 
-      ## If iiSusceptible plant is infected, generate a random infection time between t and t+1 time points
-      if(infectionStatusii == 1) {
-        Inf_times[iiSusceptible] <- runif(1, t, t+1)
-      }
-    }
-  }
-  return(list(Inf_times = Inf_times, 
-              Inf_indices = Inf_indices))
-}
-
-
+#### Simulation for visualization
 #### Initial values setup
 
-## Parameter values used in Adrakey et al. 2017 simulations
-## Units are included as comments
-alpha <- 0.08 # km^2
-beta <- 7e-6 # day^-1 km^2
-epsilon <- 5e-5 # day^-1
-
-## Alternative parameter values
+# ## Parameter values
 alpha <- 0.08
 beta <- 0.5
 epsilon <- 0.01
@@ -149,41 +72,153 @@ diseaseRasterStack <- stack(diseaseRasterList)
 plot(diseaseRasterStack)
 
 
-
-
-pdf("output/simulated_disease_spread_raster_stack.pdf")                                          
+pdf("output/simulated_disease_spread_raster_stack.pdf")
   plot(diseaseRasterStack)
 dev.off()
 
 
 
 
-# infectionStatus <- ifelse(Inf_times < tcuts[2], 1, 0)
-# 
-# ## Make Coo a data.frame for plotting
-# diseaseData <- data.frame("cooRows" = Coo[,1],
-#                           "cooColumns" = Coo[,2],
-#                           "infection" = as.integer(infectionStatus))
-# 
-# diseaseRaster <- with(diseaseData, raster(nrows = length(unique(cooRows)), 
-#                                           ncols = length(unique(cooColumns)),
-#                                           ymn = min(cooRows), ymx = max(cooRows),
-#                                           xmn = min(cooColumns), xmx = max(cooColumns),
-#                                           vals = infection))
-# pdf("output/simulated_disease_spread_raster.pdf")                                          
-#   plot(diseaseRaster)
-# dev.off()
+####################################################################################################
+#### Replicating simulation from Adrakey et al. 2017
 
-# diseasePlot <- ggplot(data = diseaseData, aes(x = columns, y = rows)) +
-#   geom_point(aes(colour = infection), size = 6) +
-#   theme_bw() + 
-#   theme(axis.line = element_line(colour = "black"),
-#         axis.text = element_text(size=14),
-#         axis.title = element_text(size=16),
-#         panel.grid.major = element_blank(),
-#         panel.grid.minor = element_blank(),
-#         panel.border = element_rect(colour = "black"),
-#         panel.background = element_blank()) 
-# 
-# diseasePlot
-# 
+## Parameter values used in simulations
+## Units are included as comments
+alphaAd <- 0.08 # km^2
+betaAd <- 7e-6 # day^-1 km^2
+epsilonAd <- 5e-5 # day^-1
+
+TmaxAd <- 460
+
+## Simulated host population
+## N = 1000 plants, uniformly distributed over 0.75 x 0.75 km^2
+## Data from Adrakey et al. 2017 supplementary files
+adcoo <- read.table("Adrakey2017_code/Coo.txt")
+summary(adcoo)
+
+
+#### Simulate spread from Adrakey parameters
+spreadAd <- simulateDiseaseSpread(alpha = alphaAd, beta = betaAd, epsilon = epsilonAd, Tmax = TmaxAd, Coo = adcoo)
+print(head(spreadAd$Inf_times[order(spreadAd$Inf_times)]))
+
+saveRDS(spreadAd, "output/simulation_output_adrakey_setup.rds")
+
+
+#### Compare my simulation to Infection times provided by Adrakey paper
+adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+str(adInf_tim)
+## Read in Inf_times and Inf_indices from simulation run on cluster
+spreadAd <- readRDS("output/simulation_output_adrakey_setup.rds")
+Inf_times <- spreadAd$Inf_times
+Inf_indices <- spreadAd$Inf_indices
+
+
+#### Compare distribution of infection times at t = 130
+t1 <- Inf_times[Inf_times <= 130]
+t1[order(t1)]
+t1[order(t1)] %>% length()
+
+adInf_tim %>% dplyr::filter(V1 <= 130) %>% arrange(V1) %>% t()
+
+
+#### Total infections
+infecteds <- Inf_times[Inf_times < 460]
+infectionStatus <- ifelse(Inf_times < 460, 1, 0)
+length(infecteds)
+hist(infecteds)
+# Symptomatic plants
+sum(infecteds < 360)
+
+infData <- data.frame("xcoo" = adcoo$V1,
+                      "ycoo" = adcoo$V2,
+                      "Inf_times" = Inf_times)
+
+#### Make some plots to compare with Adrakey Figure S2
+## Infections at t = 130
+timeslice <- 130
+simulateAd_t130 <- ggplot(data = infData, aes(x=xcoo, y=ycoo)) +
+  geom_point(data = infData[infData$Inf_times > timeslice,], colour = "grey", size = 3) +
+  geom_point(data = infData[infData$Inf_times <= timeslice-100,], colour = "red", size = 3) +
+  geom_point(data = infData[infData$Inf_times <= timeslice & infData$Inf_times > timeslice-100,], colour = "blue", size = 3) +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank()) 
+simulateAd_t130  
+
+ggsave("output/simulation_adrakey_setup_figure_t130.jpg", plot = simulateAd_t130,
+       width = 7, height = 7, units = "in")
+
+## Infections at t = 460
+timeslice <- 460
+simulateAd_final <- ggplot(data = infData, aes(x=xcoo, y=ycoo)) +
+  geom_point(colour = "grey", size = 3) +
+  geom_point(data = infData[infData$Inf_times <= timeslice-100,], colour = "red", size = 3) +
+  geom_point(data = infData[infData$Inf_times < timeslice & infData$Inf_times > timeslice-100,], colour = "blue", size = 3) +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank()) 
+simulateAd_final  
+
+ggsave("output/simulation_adrakey_setup_figure_time_final.jpg", plot = simulateAd_final,
+       width = 7, height = 7, units = "in")
+
+
+## Adrakey's Inf_times
+infectedsAd <- adInf_tim$V1[adInf_tim$V1 < 460]
+infectionStatusAd <- ifelse(adInf_tim$V1 < 460, 1, 0)
+## Symptomatic plants
+length(infectedsAd)
+hist(infectedsAd)
+
+
+
+
+#### Look at time intervals from Adrakey
+adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
+str(adtime_interval)
+adtobs <- unique(c(adtime_interval$V1, adtime_interval$V2))
+adtobs[order(adtobs)]
+## Observations were at 30 day intervals up to 360
+## Observations stopped at 360 because Adrakey's simulations assumed a latent period of 100 days
+adtime_interval2 <- cbind(adtime_interval, adInf_tim)
+adtime_interval2[adtime_interval2[,3] < 460, ]
+
+
+#### Make time intervals from my simulations
+tcuts <- seq(0, 360, by = 30)
+time_intervals <- matrix(0, ncol = 2, nrow = length(Inf_times))
+Tmax <- 460
+
+for(t in 1:length(tcuts)){
+  if(tcuts[t] < max(tcuts)){
+    for(i in 1:length(Inf_times)){
+      if(Inf_times[i] > tcuts[t] && Inf_times[i] <= tcuts[t+1]){
+        ## Set lower observation: last time point plant was observed asymptomatic
+        time_intervals[i,1] <- tcuts[t]
+        ## Set upper observation: first time point plant was observed symptomatic
+        time_intervals[i,2] <- tcuts[t+1]
+      }
+    }
+  }
+} 
+
+
+checktime_interval <- cbind(time_intervals, Inf_times)
+checktime_interval[checktime_interval[,3] < 460,]
+
+#### Save simulation initial parameters and outputs
+simulationResults <- list(Tmax = TmaxAd,
+                          alpha = alphaAd,
+                          beta = betaAd,
+                          epsilon = epsilonAd,
+                          Coo = adcoo,
+                          Inf_times = Inf_times,
+                          Inf_indices = Inf_indices,
+                          time_intervals = time_intervals)
+saveRDS(simulationResults, "output/simulation_results_list.rds")
