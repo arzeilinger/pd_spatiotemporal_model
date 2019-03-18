@@ -216,7 +216,7 @@ inits <- list(alpha = 0.1,
               Inf_indices = Inf_indices)
 
 Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
-##Cmodel <- compileNimble(Rmodel)                  
+Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)                  
 ```
 
 
@@ -511,13 +511,12 @@ set.seed(1)
 samples <- MCMC$run(niter = 100)
 
 ## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
+Cmcmc <- compileNimble(MCMC, project = Rmodel)
 samples <- runMCMC(MCMC, niter = 100, nchains=1)
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
 ## Were Inf_indices changed by MCMC?
 library(dplyr)
-samples_II <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_indices"))
-summary(samples_II)
 
 ## Were Inf_times changed by MCMC?
 samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
