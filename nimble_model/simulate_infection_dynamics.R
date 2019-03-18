@@ -10,7 +10,7 @@ lapply(my.packages, require, character.only = TRUE)
 #### Load simulation function and dispersal kernel functions
 source("R_functions/simulateDiseaseSpread.R")
 source("R_functions/dispersal_kernel_functions.R")
-
+source("R_functions/getTimeIntervals.R")
 
 #### Simulation for visualization
 #### Initial values setup
@@ -29,9 +29,31 @@ grid <- 1:nrc
 Coo <- matrix(c(rep(grid, nrc), rep(grid, each = nrc)), ncol = 2)
 
 
-## Run simulateDiseaseSpread
+#### Run simulateDiseaseSpread
 testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 (Inf_times <- testSpread$Inf_times)
+
+
+#### Get time intervals
+## tcuts (observation times) should probably not include Tmax (i.e., the last observation should be < Tmax)
+tslices <- seq(10, 90, by = 10)
+time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices)
+cbind(time_intervals, Inf_times)
+
+#### Compile all the simulation components
+simulationResults <- list(Tmax = Tmax,
+                          alpha = alpha,
+                          beta = beta,
+                          epsilon = epsilon,
+                          latent_period = 3,
+                          Coo = Coo,
+                          numPlants = nrow(Coo),
+                          numInfections = sum(Inf_times < Tmax),
+                          Inf_times = Inf_times,
+                          Inf_indices = Inf_indices,
+                          time_intervals = time_intervals)
+saveRDS(simulationResults, "output/simulation_results_list.rds")
+
 
 
 
