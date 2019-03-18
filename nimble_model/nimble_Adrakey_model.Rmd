@@ -36,7 +36,7 @@ Code to run the Adrakey et al. 2017 stochastic spatio-temporal epidemic model in
 
 require(nimble)
 
-#### Kernel as nimbleFunction
+#### Simple exponential kernel as nimbleFunction
 kernelnf <- nimbleFunction(
     run = function(distance = double(0), alpha = double(0)) {
         return(exp(-(distance / alpha)))
@@ -45,6 +45,17 @@ kernelnf <- nimbleFunction(
     )
 
 ## ckernelnf <- compileNimble(kernelnf) ##ok
+
+#### Normalized exponential kernel as nimbleFunction
+normalizedKernelnf <- nimbleFunction(
+    run = function(distance = double(0), alpha = double(0)) {
+        return((1/(2*3.141593*distance*alpha))*exp(-(distance / alpha)))
+        returnType(double())        
+    }
+    )
+
+##ckernelnf <- compileNimble(normalizedKernelnf) ##ok
+
 
 #### nimbleFunction for Adrakey complete data likelihood equation
 ## Based on Suppl. Material Eqn 1 and likelihood.h C++ code
@@ -216,7 +227,9 @@ inits <- list(alpha = 0.1,
               Inf_indices = Inf_indices)
 
 Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
-Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)                  
+Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)   
+
+
 ```
 
 
@@ -505,13 +518,12 @@ MCMCconf$printSamplers()
 ## To enter browser and run through MCMC algorithm 
 # MCMC$run(1)
 
-#### To run many MCMC iterations for debugging purposes
-set.seed(1)
+## Compile MCMC for running in C++
+Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
-samples <- MCMC$run(niter = 100)
 
 ## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
-Cmcmc <- compileNimble(MCMC, project = Rmodel)
+set.seed(1)
 samples <- runMCMC(MCMC, niter = 100, nchains=1)
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
