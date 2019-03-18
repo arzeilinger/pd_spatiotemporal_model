@@ -87,7 +87,7 @@ dDiseaseSpread <- nimbleFunction(
         infTimeTarget <- Inf_times[iTargetPlant]
         if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
           d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
-          S <- S + beta * kernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
+          S <- S + beta * normalizedKernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
         }
       }
     }
@@ -101,7 +101,7 @@ dDiseaseSpread <- nimbleFunction(
       m <- 0
       for(iSourcePlant in 1:(iTargetPlant-1)) {
         d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
-        m <- m + beta * kernelnf(distance = d, alpha = alpha)
+        m <- m + beta * normalizedKernelnf(distance = d, alpha = alpha)
       }
       P <- P + log(m + epsilon)
     }
@@ -186,6 +186,14 @@ adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
 str(adtime_interval)
 
 
+
+#### Set up simulated data for fitting to nimble model
+simulationResults <- readRDS("output/simulation_results_list.rds")
+str(simulationResults)
+## Make all elements of the saved list available to global environment
+list2env(simulationResults, globalenv())
+
+
 ```
 
 
@@ -220,7 +228,7 @@ data <- list(Ydummy = 1)
 
 inits <- list(alpha = 0.1,
               beta = 0.1,
-              epsilon = 0.05,
+              epsilon = 0.1,
               numInfections = numInfections,
               Tmax = Tmax,
               Inf_times = Inf_times,
@@ -493,7 +501,7 @@ MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection', 
                     target = 'Inf_indices',
                     control = list(
-                      time_intervals = Y,
+                      time_intervals = time_intervals,
                       Inf_times_node = 'Inf_times',
                       Inf_indices_node = 'Inf_indices',
                       numInfections_node = 'numInfections',
@@ -527,14 +535,16 @@ set.seed(1)
 samples <- runMCMC(MCMC, niter = 100, nchains=1)
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
-## Were Inf_indices changed by MCMC?
+## Were Inf_times changed by MCMC?
 library(dplyr)
 
-## Were Inf_times changed by MCMC?
 samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
 summary(samples_IT)
 
 plot(samples_IT[1:100,49])
+
+## Were the parameter changed by MCMC?
+plot(as.data.frame(samples)$alpha)
 
 ```
 
