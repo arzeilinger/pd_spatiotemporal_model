@@ -40,7 +40,7 @@ testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 ## Produce maps of infection status based on different time points t
 
 ## Vector of time points to plot
-tcuts <- floor(seq(1,100,length.out=9))
+tcuts <- floor(seq(5,100,length.out=9))
 
 
 #### Produce raster stack of infection status at a series of time points
@@ -98,19 +98,51 @@ summary(adcoo)
 
 
 #### Simulate spread from Adrakey parameters
+## This takes > 5 hours on my computer; use the cluster
 spreadAd <- simulateDiseaseSpread(alpha = alphaAd, beta = betaAd, epsilon = epsilonAd, Tmax = TmaxAd, Coo = adcoo)
 print(head(spreadAd$Inf_times[order(spreadAd$Inf_times)]))
 
 saveRDS(spreadAd, "output/simulation_output_adrakey_setup.rds")
 
-
-#### Compare my simulation to Infection times provided by Adrakey paper
-adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
-str(adInf_tim)
 ## Read in Inf_times and Inf_indices from simulation run on cluster
 spreadAd <- readRDS("output/simulation_output_adrakey_setup.rds")
 Inf_times <- spreadAd$Inf_times
 Inf_indices <- spreadAd$Inf_indices
+
+
+
+#### Make time intervals from my simulations
+tcuts <- seq(0, 360, by = 30)
+
+time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tcuts)
+
+checktime_interval <- cbind(time_intervals, Inf_times)
+checktime_interval[checktime_interval[,3] < 460,]
+
+#### Save simulation initial parameters and outputs
+simulationResults <- list(Tmax = TmaxAd,
+                          alpha = alphaAd,
+                          beta = betaAd,
+                          epsilon = epsilonAd,
+                          Coo = adcoo,
+                          Inf_times = Inf_times,
+                          Inf_indices = Inf_indices,
+                          time_intervals = time_intervals)
+saveRDS(simulationResults, "output/simulation_results_list.rds")
+
+
+######################################################################################################
+#### Compare my simulation to Infection times provided by Adrakey paper
+adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+str(adInf_tim)
+
+## Adrakey's Inf_times
+infectedsAd <- adInf_tim$V1[adInf_tim$V1 < 460]
+infectionStatusAd <- ifelse(adInf_tim$V1 < 460, 1, 0)
+## Symptomatic plants
+length(infectedsAd)
+hist(infectedsAd)
+
 
 
 #### Compare distribution of infection times at t = 130
@@ -169,14 +201,6 @@ ggsave("output/simulation_adrakey_setup_figure_time_final.jpg", plot = simulateA
        width = 7, height = 7, units = "in")
 
 
-## Adrakey's Inf_times
-infectedsAd <- adInf_tim$V1[adInf_tim$V1 < 460]
-infectionStatusAd <- ifelse(adInf_tim$V1 < 460, 1, 0)
-## Symptomatic plants
-length(infectedsAd)
-hist(infectedsAd)
-
-
 
 
 #### Look at time intervals from Adrakey
@@ -190,35 +214,3 @@ adtime_interval2 <- cbind(adtime_interval, adInf_tim)
 adtime_interval2[adtime_interval2[,3] < 460, ]
 
 
-#### Make time intervals from my simulations
-tcuts <- seq(0, 360, by = 30)
-time_intervals <- matrix(0, ncol = 2, nrow = length(Inf_times))
-Tmax <- 460
-
-for(t in 1:length(tcuts)){
-  if(tcuts[t] < max(tcuts)){
-    for(i in 1:length(Inf_times)){
-      if(Inf_times[i] > tcuts[t] && Inf_times[i] <= tcuts[t+1]){
-        ## Set lower observation: last time point plant was observed asymptomatic
-        time_intervals[i,1] <- tcuts[t]
-        ## Set upper observation: first time point plant was observed symptomatic
-        time_intervals[i,2] <- tcuts[t+1]
-      }
-    }
-  }
-} 
-
-
-checktime_interval <- cbind(time_intervals, Inf_times)
-checktime_interval[checktime_interval[,3] < 460,]
-
-#### Save simulation initial parameters and outputs
-simulationResults <- list(Tmax = TmaxAd,
-                          alpha = alphaAd,
-                          beta = betaAd,
-                          epsilon = epsilonAd,
-                          Coo = adcoo,
-                          Inf_times = Inf_times,
-                          Inf_indices = Inf_indices,
-                          time_intervals = time_intervals)
-saveRDS(simulationResults, "output/simulation_results_list.rds")
