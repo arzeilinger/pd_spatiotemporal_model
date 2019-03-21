@@ -122,7 +122,7 @@ summary(adcoo)
 #### Simulate spread from Adrakey parameters
 ## This takes > 5 hours on my computer; use the cluster
 spreadAd <- simulateDiseaseSpread(alpha = alphaAd, beta = betaAd, epsilon = epsilonAd, Tmax = TmaxAd, Coo = adcoo)
-print(head(spreadAd$Inf_times[order(spreadAd$Inf_times)]))
+head(spreadAd$Inf_times[order(spreadAd$Inf_times)])
 
 saveRDS(spreadAd, "output/simulation_output_adrakey_setup.rds")
 

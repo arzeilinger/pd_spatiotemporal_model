@@ -86,7 +86,11 @@ dDiseaseSpread <- nimbleFunction(
         #infTimeTarget is either the infection time, or, if never infected, Tmax.
         infTimeTarget <- Inf_times[iTargetPlant]
         if(infTimeTarget > infTimeSource) { ## This also avoids Target plant being same as Source
-          d <- sqrt(sum(CooSource - Coo[iTargetPlant,1:2])^2)
+          d <- sqrt(sum((CooSource - Coo[iTargetPlant,1:2])^2))
+          # if(d==0) {
+          #   message("case 1")
+          #   browser()
+          # }
           S <- S + beta * normalizedKernelnf(distance = d, alpha = alpha) * (infTimeTarget - infTimeSource)
         }
       }
@@ -100,7 +104,11 @@ dDiseaseSpread <- nimbleFunction(
     for(iTargetPlant in 2:numInfections) {
       m <- 0
       for(iSourcePlant in 1:(iTargetPlant-1)) {
-        d <- sqrt(sum(Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2) 
+        d <- sqrt(sum((Coo[iSourcePlant,1:2] - Coo[iTargetPlant,1:2])^2)) 
+        # if(d==0) {
+        #   message("case 2")
+        #   browser()
+        # }
         m <- m + beta * normalizedKernelnf(distance = d, alpha = alpha)
       }
       P <- P + log(m + epsilon)
@@ -192,7 +200,8 @@ simulationResults <- readRDS("output/simulation_results_list.rds")
 str(simulationResults)
 ## Make all elements of the saved list available to global environment
 list2env(simulationResults, globalenv())
-
+## Change name of time_intervals
+Y <- time_intervals
 
 ```
 
@@ -284,7 +293,7 @@ sampler_infection <- nimbleFunction(
         if(time_intervals[iPlant, 2] > time_intervals[iPlant, 1])
           update_infection_time(iPlant, time_intervals[iPlant, 1], time_intervals[iPlant, 2])
       } else {
-        if(model[[Inf_times_nodes]][iPlant] < model[[Tmax_node]]) {
+        if(model[[Inf_times_node]][iPlant] < model[[Tmax_node]]) {
           ## never observed as symptomatic but has an imputed infection time
           ## within Dt (latent period) of Tmax.
           if(runif(1) < 0.5) {
@@ -320,7 +329,8 @@ sampler_infection <- nimbleFunction(
                model[[Tmax_node]]))
          ok <- FALSE
      }
-     ok
+     return(ok)
+     returnType(logical())
    },
    propose_add_infected = function(iPlant = double()) {
      ## put iPlant into the numInfections+1 position on Inf_indices
@@ -355,7 +365,7 @@ sampler_infection <- nimbleFunction(
      }
 
    },
-   propose_remove_infected = function(iPlant = double) {
+   propose_remove_infected = function(iPlant = double()) {
      ## This can work similarly to propose_add_infection, 
      ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
      ## so the proposal is forced to be Tmax
@@ -403,7 +413,7 @@ sampler_infection <- nimbleFunction(
       current_iSorted <- current_iSorted + 1
     }
     if(current_iSorted > numInfections)
-      print("Problem in update_known_symptomatic: current_iSorted > numInfections")
+      stop("Problem in update_known_symptomatic: current_iSorted > numInfections")
     
     current <- model[[Inf_times_node]][iPlant]
     ## startPossibleTime might equal endPossibleTime
@@ -501,7 +511,7 @@ MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection', 
                     target = 'Inf_indices',
                     control = list(
-                      time_intervals = time_intervals,
+                      time_intervals = Y,
                       Inf_times_node = 'Inf_times',
                       Inf_indices_node = 'Inf_indices',
                       numInfections_node = 'numInfections',
@@ -532,7 +542,8 @@ Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 ## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
 set.seed(1)
-samples <- runMCMC(MCMC, niter = 100, nchains=1)
+samples <- runMCMC(Cmcmc, niter = 100, nchains=1)
+
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
 ## Were Inf_times changed by MCMC?
@@ -541,7 +552,7 @@ library(dplyr)
 samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
 summary(samples_IT)
 
-plot(samples_IT[1:100,49])
+plot(samples_IT[1:100,355])
 
 ## Were the parameter changed by MCMC?
 plot(as.data.frame(samples)$alpha)
