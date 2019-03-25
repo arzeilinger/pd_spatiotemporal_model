@@ -146,56 +146,58 @@ dDiseaseObs <- nimbleFunction(
 ```
 
 
-#### Set up toy data set 
+#### Set up simulated data set 
 ```{r}
-Tmax <- 25
-alpha <- 3
-beta <- 1.0
-epsilon <- 0.05
-grid <- 1:10
-Coo <- matrix(c(rep(grid, 10), rep(grid, each = 10)), ncol = 2)
-numPlants <- nrow(Coo)
-IDs <- 1:numPlants
-head(Coo)
-## Inf_times will be length of number of plants
-Inf_times <- rep(Tmax, numPlants)
-## Inf_indices will be only as long as the number of infecteds
-## Suppose time is measured in tenths of a day; "snapshot" observations that generate Y are taken every day
-## Using day fractions so I can use floor() and ceiling() functions to easily generate time intervals Y from Inf_times
-numInfections <- 20
-Inf_indices0 <- 40 + (1:numInfections) # Only the indices of infected plants
-## Assume that t[obs] == Tmax (i.e., observations continue up to Tmax)
-Inf_times[Inf_indices0] <- runif(numInfections, min = 1, max = Tmax)
-## Or use previous Inf_times for debugging:
-## This set of infection times assumes that t[obs] < Tmax (specifically, tobs = 15 and Tmax = 18)
-# Inf_times[Inf_indices0] <- c(7.78953436017036, 1.22445046855137, 2.94963462930173, 8.66764003364369, 
-# 4.21073516923934, 9.03165779309347, 4.21444509970024, 3.29970863787457, 
-# 3.33595081651583, 14.9816265339032, 12.6063560643233, 5.54642259888351, 
-# 5.14762242045254, 4.14943666243926, 13.66873723967, 5.63792741298676, 
-# 1.17021887656301, 7.22481356933713, 4.11144214635715, 12.4667510073632)
-## Use sorted Inf_times to sort Inf_indices == indices of all plants sorted by time of infection
-Inf_indices <- IDs[order(Inf_times)]
 
-## In Adrakey et al., Y is a time interval within which each plant was infected, 
-## with nrow = numPlants, ncol = 2, and 0's for plants never infected
-Y <- matrix(0, nrow = numPlants, ncol = 2) # Initialize Y
-Y[Inf_indices0,1] <- floor(Inf_times[Inf_indices0])
-Y[Inf_indices0,2] <- ceiling(Inf_times[Inf_indices0])
-
-
-#### Try the data sets supplied by Adrakey as a toy data set
-adcoo <- read.table("Adrakey2017_code/Coo.txt")
-str(adcoo)
-adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
-str(adIndx_ind)
-adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
-str(adInf_tim)
-adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
-str(adtime_interval)
+#### This is the old toy data set
+# Tmax <- 25
+# alpha <- 3
+# beta <- 1.0
+# epsilon <- 0.05
+# grid <- 1:10
+# Coo <- matrix(c(rep(grid, 10), rep(grid, each = 10)), ncol = 2)
+# numPlants <- nrow(Coo)
+# IDs <- 1:numPlants
+# head(Coo)
+# ## Inf_times will be length of number of plants
+# Inf_times <- rep(Tmax, numPlants)
+# ## Inf_indices will be only as long as the number of infecteds
+# ## Suppose time is measured in tenths of a day; "snapshot" observations that generate Y are taken every day
+# ## Using day fractions so I can use floor() and ceiling() functions to easily generate time intervals Y from Inf_times
+# numInfections <- 20
+# Inf_indices0 <- 40 + (1:numInfections) # Only the indices of infected plants
+# ## Assume that t[obs] == Tmax (i.e., observations continue up to Tmax)
+# Inf_times[Inf_indices0] <- runif(numInfections, min = 1, max = Tmax)
+# ## Or use previous Inf_times for debugging:
+# ## This set of infection times assumes that t[obs] < Tmax (specifically, tobs = 15 and Tmax = 18)
+# # Inf_times[Inf_indices0] <- c(7.78953436017036, 1.22445046855137, 2.94963462930173, 8.66764003364369, 
+# # 4.21073516923934, 9.03165779309347, 4.21444509970024, 3.29970863787457, 
+# # 3.33595081651583, 14.9816265339032, 12.6063560643233, 5.54642259888351, 
+# # 5.14762242045254, 4.14943666243926, 13.66873723967, 5.63792741298676, 
+# # 1.17021887656301, 7.22481356933713, 4.11144214635715, 12.4667510073632)
+# ## Use sorted Inf_times to sort Inf_indices == indices of all plants sorted by time of infection
+# Inf_indices <- IDs[order(Inf_times)]
+# 
+# ## In Adrakey et al., Y is a time interval within which each plant was infected, 
+# ## with nrow = numPlants, ncol = 2, and 0's for plants never infected
+# Y <- matrix(0, nrow = numPlants, ncol = 2) # Initialize Y
+# Y[Inf_indices0,1] <- floor(Inf_times[Inf_indices0])
+# Y[Inf_indices0,2] <- ceiling(Inf_times[Inf_indices0])
 
 
+#### This is the data set supplied by Adrakey
+# adcoo <- read.table("Adrakey2017_code/Coo.txt")
+# str(adcoo)
+# adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
+# str(adIndx_ind)
+# adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+# str(adInf_tim)
+# adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
+# str(adtime_interval)
 
-#### Set up simulated data for fitting to nimble model
+
+
+#### Set up data set from simulated infection dynamics
 simulationResults <- readRDS("output/simulation_results_list.rds")
 str(simulationResults)
 ## Make all elements of the saved list available to global environment
