@@ -339,6 +339,8 @@ sampler_infection <- nimbleFunction(
      ## Then do a regular update_infection_time by with different acceptance probability
      ## via the logProb_RJ argument
      if(!check_system()) {
+       print(Inf_times_node)
+       print(Inf_indices_node)
        stop("Found the system out of valid state entering propose_add_infected")
        #browser()
      }
@@ -362,6 +364,8 @@ sampler_infection <- nimbleFunction(
        }
      }
      if(!check_system()) {
+       print(Inf_times_node)
+       print(Inf_indices_node)
        stop("Found the system out of valid state exiting propose_add_infected")
        #browser()
      }
@@ -372,6 +376,8 @@ sampler_infection <- nimbleFunction(
      ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
      ## so the proposal is forced to be Tmax
      if(!check_system()) {
+       print(Inf_times_node)
+       print(Inf_indices_node)
        stop("Found the system out of valid state entering propose_remove_infected")
        #browser()
      }
@@ -392,6 +398,8 @@ sampler_infection <- nimbleFunction(
          mvSaved[numInfections_node, 1] <<- current_numInfections - 1
        }
        if(!check_system()) {
+         print(Inf_times_node)
+         print(Inf_indices_node)
          stop("Found the system out of valid state exiting propose_remove_infected")
          #browser()
        }
@@ -404,6 +412,8 @@ sampler_infection <- nimbleFunction(
                                     logProb_RJ_contributions = double(0, default = 0)) {
      returnType(logical(0))
      if(!check_system()) {
+       print(Inf_times_node)
+       print(Inf_indices_node)
        stop("Found the system out of valid state entering update_infection_time")
        #browser()
      }
@@ -463,6 +473,8 @@ sampler_infection <- nimbleFunction(
     model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
     model[[Inf_times_node]][iPlant] <<- proposal
     if(!check_system()) {
+      print(Inf_times_node)
+      print(Inf_indices_node)
       stop("Found the system out of valid state in update_infection_time before calculating proposal logProb.")
       #browser()
     }
@@ -494,7 +506,9 @@ sampler_infection <- nimbleFunction(
       jumped <- FALSE
     }
     if(!check_system()) {
-      stop("Found the system out of valid state exiting update_infection_time.")
+       print(Inf_times_node)
+       print(Inf_indices_node)
+       stop("Found the system out of valid state exiting update_infection_time.")
       #browser()
     }
 
@@ -505,7 +519,8 @@ sampler_infection <- nimbleFunction(
 )
 ```
 
-Make uncompiled MCMC for debugging
+Configure MCMC
+Also includes options to enter browser for debugging
 
 ```{r}
 ## Empty configuration
@@ -538,6 +553,13 @@ MCMCconf$printSamplers()
 ## To enter browser and run through MCMC algorithm 
 # MCMC$run(1)
 
+
+```
+
+Compile and run MCMC
+
+```{r}
+
 set.seed(123)
 
 ## Compile MCMC for running in C++
@@ -545,7 +567,7 @@ Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 
 ## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
-samples <- runMCMC(Cmcmc, niter = 10000, nchains=1)
+samples <- runMCMC(Cmcmc, niter = 100, nchains=1)
 
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
@@ -560,12 +582,6 @@ plot(samples_IT[,365])
 
 ## Were the parameter changed by MCMC?
 plot(as.data.frame(samples)$alpha)
-
-```
-
-
-
-```{r}
 
 ```
 
