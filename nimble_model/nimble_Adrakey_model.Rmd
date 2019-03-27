@@ -198,18 +198,18 @@ str(adtime_interval)
 Coo <- as.matrix(adcoo)
 Inf_times <- adInf_tim[,1]
 Inf_indices <- as.numeric(adIndx_ind[,1])
-Y <- adtime_interval
+Y <- as.matrix(adtime_interval)
 Tmax <- 460
 numPlants <- nrow(adcoo)
 numInfections <- sum(Inf_times < Tmax)
 
 #### Set up data set from simulated infection dynamics
-# simulationResults <- readRDS("output/simulation_results_list.rds")
-# str(simulationResults)
-# ## Make all elements of the saved list available to global environment
-# list2env(simulationResults, globalenv())
-# ## Change name of time_intervals
-# Y <- time_intervals
+simulationResults <- readRDS("output/simulation_results_list.rds")
+str(simulationResults)
+## Make all elements of the saved list available to global environment
+list2env(simulationResults, globalenv())
+## Change name of time_intervals
+Y <- time_intervals
 
 ```
 
@@ -345,8 +345,8 @@ sampler_infection <- nimbleFunction(
      ## Then do a regular update_infection_time by with different acceptance probability
      ## via the logProb_RJ argument
      if(!check_system()) {
-       print(Inf_times_node)
-       print(Inf_indices_node)
+       print(model[[Inf_times_node]])
+       print(model[[Inf_indices_node]])
        stop("Found the system out of valid state entering propose_add_infected")
        #browser()
      }
@@ -370,8 +370,8 @@ sampler_infection <- nimbleFunction(
        }
      }
      if(!check_system()) {
-       print(Inf_times_node)
-       print(Inf_indices_node)
+       print(model[[Inf_times_node]])
+       print(model[[Inf_indices_node]])
        stop("Found the system out of valid state exiting propose_add_infected")
        #browser()
      }
@@ -382,8 +382,8 @@ sampler_infection <- nimbleFunction(
      ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
      ## so the proposal is forced to be Tmax
      if(!check_system()) {
-       print(Inf_times_node)
-       print(Inf_indices_node)
+       print(model[[Inf_times_node]])
+       print(model[[Inf_indices_node]])
        stop("Found the system out of valid state entering propose_remove_infected")
        #browser()
      }
@@ -404,8 +404,8 @@ sampler_infection <- nimbleFunction(
          mvSaved[numInfections_node, 1] <<- current_numInfections - 1
        }
        if(!check_system()) {
-         print(Inf_times_node)
-         print(Inf_indices_node)
+         print(model[[Inf_times_node]])
+         print(model[[Inf_indices_node]])
          stop("Found the system out of valid state exiting propose_remove_infected")
          #browser()
        }
@@ -418,8 +418,8 @@ sampler_infection <- nimbleFunction(
                                     logProb_RJ_contributions = double(0, default = 0)) {
      returnType(logical(0))
      if(!check_system()) {
-       print(Inf_times_node)
-       print(Inf_indices_node)
+       print(model[[Inf_times_node]])
+       print(model[[Inf_indices_node]])
        stop("Found the system out of valid state entering update_infection_time")
        #browser()
      }
@@ -479,8 +479,8 @@ sampler_infection <- nimbleFunction(
     model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
     model[[Inf_times_node]][iPlant] <<- proposal
     if(!check_system()) {
-      print(Inf_times_node)
-      print(Inf_indices_node)
+      print(model[[Inf_times_node]])
+      print(model[[Inf_indices_node]])
       stop("Found the system out of valid state in update_infection_time before calculating proposal logProb.")
       #browser()
     }
@@ -512,8 +512,8 @@ sampler_infection <- nimbleFunction(
       jumped <- FALSE
     }
     if(!check_system()) {
-       print(Inf_times_node)
-       print(Inf_indices_node)
+       print(model[[Inf_times_node]])
+       print(model[[Inf_indices_node]])
        stop("Found the system out of valid state exiting update_infection_time.")
       #browser()
     }
@@ -572,7 +572,7 @@ set.seed(123)
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
-samples <- runMCMC(Cmcmc, niter = 1000, nchains=1)
+samples <- runMCMC(Cmcmc, niter = 100, nchains = 1)
 
 ## Run uncompiled MCMC
 samples <- runMCMC(MCMC, niter = 100, nchains = 1)
@@ -586,8 +586,9 @@ samplesDF <- as.data.frame(samples)
 samples_IT <- samplesDF %>% dplyr::select(contains("Inf_times"))
 sdIT <- apply(samples_IT, 2, sd)
 any(sdIT > 0)
+summary(samples_IT)
 
-plot(samples_IT[,365])
+plot(samples_IT[,941])
 
 ## Were the parameter changed by MCMC?
 plot(samplesDF$alpha)
