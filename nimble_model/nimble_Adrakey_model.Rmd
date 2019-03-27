@@ -538,13 +538,14 @@ MCMCconf$printSamplers()
 ## To enter browser and run through MCMC algorithm 
 # MCMC$run(1)
 
+set.seed(123)
+
 ## Compile MCMC for running in C++
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 
 ## Not sure why but "samples" is empty when I use MCMC$run, but returns a matrix when I use runMCMC(MCMC)
-set.seed(1)
-samples <- runMCMC(Cmcmc, niter = 100, nchains=1)
+samples <- runMCMC(Cmcmc, niter = 10000, nchains=1)
 
 saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 
@@ -552,9 +553,10 @@ saveRDS(samples, file = "MCMC_sample_infection_raw_output.rds")
 library(dplyr)
 
 samples_IT <- samples %>% as.data.frame() %>% dplyr::select(contains("Inf_times"))
-summary(samples_IT)
+sdIT <- apply(samples_IT, 2, sd)
+any(sdIT > 0)
 
-plot(samples_IT[1:100,355])
+plot(samples_IT[,365])
 
 ## Were the parameter changed by MCMC?
 plot(as.data.frame(samples)$alpha)
