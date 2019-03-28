@@ -186,22 +186,22 @@ dDiseaseObs <- nimbleFunction(
 
 
 #### This is the data set supplied by Adrakey
-adcoo <- read.table("Adrakey2017_code/Coo.txt")
-str(adcoo)
-adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
-str(adIndx_ind)
-adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
-str(adInf_tim)
-adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
-str(adtime_interval)
-
-Coo <- as.matrix(adcoo)
-Inf_times <- adInf_tim[,1]
-Inf_indices <- as.numeric(adIndx_ind[,1])
-Y <- as.matrix(adtime_interval)
-Tmax <- 460
-numPlants <- nrow(adcoo)
-numInfections <- sum(Inf_times < Tmax)
+# adcoo <- read.table("Adrakey2017_code/Coo.txt")
+# str(adcoo)
+# adIndx_ind <- read.table("Adrakey2017_code/Indx_ind.txt")
+# str(adIndx_ind)
+# adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
+# str(adInf_tim)
+# adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
+# str(adtime_interval)
+# 
+# Coo <- as.matrix(adcoo)
+# Inf_times <- adInf_tim[,1]
+# Inf_indices <- as.numeric(adIndx_ind[,1])
+# Y <- as.matrix(adtime_interval)
+# Tmax <- 460
+# numPlants <- nrow(adcoo)
+# numInfections <- sum(Inf_times < Tmax)
 
 #### Set up data set from simulated infection dynamics
 simulationResults <- readRDS("output/simulation_results_list.rds")
