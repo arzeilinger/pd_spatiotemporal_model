@@ -62,8 +62,8 @@ server <- function(input, output) {
     layerNames <- rep(NA, length(tcuts))
     for(i in 1:length(tcuts)){
       ## Produce vector of infection status: 1 = infected, 0 = susceptible at a given time point t
-      infectionStatus.i <- ifelse(Inf_times < tcuts[i], 1, 0)
-      layerNames[i] <- paste("Disease prevalence after ", tcuts[i], " days", sep = "")
+      infectionStatus.i <- as.integer(ifelse(Inf_times < tcuts[i], 1, 0))
+      layerNames[i] <- paste("After", tcuts[i], "days", sep = "_")
       raster.i <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
                          ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
                          vals = infectionStatus.i)
@@ -73,7 +73,11 @@ server <- function(input, output) {
     names(diseaseRasterStack) <- layerNames
     #giftitle <- rep("Vineyard disease spread", dim(diseaseRasterStack)[3])
     #raster::animate(diseaseRasterStack, pause = 0.5)
-    plot(diseaseRasterStack, legend = FALSE)
+    ## Specify raster colors
+    breakpoints <- c(0,0.25,0.75,1,1.25)
+    colors <- c("grey", "grey", "darkgreen", "darkgreen", "darkgreen")
+    plot(diseaseRasterStack, legend = FALSE, axes = FALSE, box = FALSE,
+         breaks = breakpoints, col = colors)
     })
 }
 
