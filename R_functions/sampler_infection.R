@@ -1,4 +1,16 @@
 #### MCMC algorithm sampler_infection
+
+#### nimbleRcall function to insert into sampler_infection
+
+# browser2 <- function(check_system){
+#   browser(text = "opening browser in R", expr = check_system)
+# }
+#   
+# check_systemR <- nimbleRcall(prototype = function(check_system = logical){}, 
+#                              Rfun = 'browser2', returnType = character)
+
+
+#### MCMC algorithm sampler_infection
 #### Based on Adrakey et al. 2017
 
 sampler_infection <- nimbleFunction(
@@ -113,8 +125,9 @@ sampler_infection <- nimbleFunction(
         }
       }
       if(!check_system()) {
+        ## Using nimbleRcall to open browser()
+        #check_systemR()
         stop("Found the system out of valid state exiting propose_add_infected")
-        #browser()
       }
       print("leaving propose_add_infected")
     },
@@ -124,10 +137,10 @@ sampler_infection <- nimbleFunction(
       ## so the proposal is forced to be Tmax
       print("entering propose_remove_infected")
       if(!check_system()) {
+        ## Using nimbleRcall to open browser()
+        #check_systemR()
         stop("Found the system out of valid state entering propose_remove_infected")
-        #browser()
       }
-      
       current_numInfections <- model[[numInfections_node]]
       if(current_numInfections > 0) {
         # These start and end possible times are for the logProb_RJ_contributions
@@ -144,8 +157,9 @@ sampler_infection <- nimbleFunction(
           mvSaved[numInfections_node, 1] <<- current_numInfections - 1
         }
         if(!check_system()) {
+          ## Using nimbleRcall to open browser()
+          #check_systemR()
           stop("Found the system out of valid state exiting propose_remove_infected")
-          #browser()
         }
         
       }
@@ -158,8 +172,9 @@ sampler_infection <- nimbleFunction(
       returnType(logical(0))
       print("entering update_infection_time")
       if(!check_system()) {
+        ## Using nimbleRcall to open browser()
+        #check_systemR()
         stop("Found the system out of valid state entering update_infection_time")
-        #browser()
       }
       currentLogProb <- model$getLogProb(calcNodes)
       current_iSorted <- 1
@@ -217,6 +232,8 @@ sampler_infection <- nimbleFunction(
       model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
       model[[Inf_times_node]][iPlant] <<- proposal
       if(!check_system()) {
+        ## Using nimbleRcall to open browser()
+        #check_systemR()
         stop("Found the system out of valid state in update_infection_time before calculating proposal logProb.")
         #browser()
       }
@@ -251,6 +268,8 @@ sampler_infection <- nimbleFunction(
         jumped <- FALSE
       }
       if(!check_system()) {
+        ## Using nimbleRcall to open browser()
+        #check_systemR()
         stop("Found the system out of valid state exiting update_infection_time.")
         #browser()
       }
