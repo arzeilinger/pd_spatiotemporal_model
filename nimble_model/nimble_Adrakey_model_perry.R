@@ -189,12 +189,8 @@ set.seed(123)
 ## Compile MCMC for running in C++
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
+## Run compiled MCMC
 Cmcmc$run(niter = 100)
 
-## Run compiled MCMC
-samples <- runMCMC(Cmcmc, niter = 100, nchains = 1)
-
 ## Run uncompiled MCMC
-samples <- runMCMC(MCMC, niter = 100, nchains = 1)
-
 MCMC$run(niter = 100)
