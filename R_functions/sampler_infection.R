@@ -2,12 +2,13 @@
 
 #### nimbleRcall function to insert into sampler_infection
 
-# browser2 <- function(check_system){
-#   browser(text = "opening browser in R", expr = check_system)
-# }
-#   
-# check_systemR <- nimbleRcall(prototype = function(check_system = logical){}, 
-#                              Rfun = 'browser2', returnType = character)
+browser2 <- function(){
+    browser(text = "opening browser in R")
+    NULL
+}
+
+check_systemR <- nimbleRcall(prototype = function(){}, 
+                             Rfun = 'browser2', returnType = void())
 
 
 #### MCMC algorithm sampler_infection
@@ -50,6 +51,7 @@ sampler_infection <- nimbleFunction(
     for(k in 1:trials) {
       print("on trial ", k)
       iPlant <- ceiling(runif(1,0,numPlants))
+      print("iPlant = ", iPlant)
       if(time_intervals[iPlant, 1] != model[[Tmax_node]]) {
         ## known symptomatic
         if(time_intervals[iPlant, 2] > time_intervals[iPlant, 1])
@@ -92,6 +94,8 @@ sampler_infection <- nimbleFunction(
                 model[[Tmax_node]]))
           ok <- FALSE
       }
+      if(!ok)
+          check_systemR()
       print("leaving check_system")
       return(ok)
       returnType(logical())
@@ -171,6 +175,8 @@ sampler_infection <- nimbleFunction(
                                      logProb_RJ_contributions = double(0, default = 0)) {
       returnType(logical(0))
       print("entering update_infection_time")
+      crazyCase <- iPlant == 234
+      if(crazyCase) print("In crazy case with iPlant == ", iPlant)
       if(!check_system()) {
         ## Using nimbleRcall to open browser()
         #check_systemR()
@@ -185,10 +191,12 @@ sampler_infection <- nimbleFunction(
       }
       if(current_iSorted > numInfections)
         stop("Problem in update_known_symptomatic: current_iSorted > numInfections")
-      
+
       current <- model[[Inf_times_node]][iPlant]
       ## startPossibleTime might equal endPossibleTime
       proposal <- startPossibleTime + runif(1) * (endPossibleTime - startPossibleTime);
+
+      if(crazyCase) print("current_iSorted = ", current_iSorted, " current = ", current, " proposal = ", proposal)
       
       if(proposal < current) {
         if(current_iSorted == 1) {
@@ -214,6 +222,10 @@ sampler_infection <- nimbleFunction(
           }
         }
       }
+      if(crazyCase) {
+          print("proposal_iSorted = ", proposal_iSorted)
+          check_systemR()
+      }
       if(proposal_iSorted != current_iSorted) {
         ## If the plant is moved in the indices -- based on the proposal -- this routine shifts the indices of other plants accordingly
         if(proposal < current) {
@@ -227,7 +239,8 @@ sampler_infection <- nimbleFunction(
           moveStartTo <- moveStartFrom - 1
           moveEndTo <- moveEndFrom - 1
         }
-        model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartFrom:moveEndFrom]
+          temp <- model[[Inf_indices_node]][moveStartFrom:moveEndFrom]
+        model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- temp
       }
       model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
       model[[Inf_times_node]][iPlant] <<- proposal
@@ -248,8 +261,9 @@ sampler_infection <- nimbleFunction(
         ## The updates after accepting or rejecting are customized to this particular model.
         ## We need to be sure that if we change the model, we check if this code needs modification.
         ## This code should move all modified parts of the model into the correspoding "1" row of mvSaved.
-        if(proposal_iSorted != current_iSorted) {
-          mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo] 
+          if(proposal_iSorted != current_iSorted) {
+              temp <- model[[Inf_indices_node]][moveStartTo:moveEndTo] 
+          mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo] <<- temp 
         }
         mvSaved[Inf_times_node, 1][iPlant] <<- proposal
         mvSaved[Inf_indices_node, 1][proposal_iSorted] <<- iPlant
@@ -258,8 +272,9 @@ sampler_infection <- nimbleFunction(
       } else {
         ## reject
         ## This code should restore all modified parts of the model to what they were upon entry to this method.
-        if(proposal_iSorted != current_iSorted) {
-          model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo]
+          if(proposal_iSorted != current_iSorted) {
+              temp <-  mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo]
+          model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- temp
           ##        model[[Inf_indices_node]][moveStartFrom:moveEndFrom] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo]
         }
         model[[Inf_times_node]][iPlant] <<- current
