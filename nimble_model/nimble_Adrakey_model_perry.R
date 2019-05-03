@@ -181,6 +181,7 @@ MCMCconf$addSampler(type = 'sampler_infection',
 MCMCconf$addMonitors('Inf_times')
 source("nimble_model/buildMCMC_debug.R")
 MCMC <- buildMCMC_debug(MCMCconf)
+#MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 
 
@@ -192,6 +193,9 @@ Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 ## Run compiled MCMC
 set.seed(123)
 Cmcmc$run(niter = 100, reset = TRUE)
+
+
+samples <- runMCMC(Cmcmc, niter = 100)
 
 ## Run uncompiled MCMC
 set.seed(123)
