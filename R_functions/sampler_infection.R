@@ -95,7 +95,7 @@ sampler_infection <- nimbleFunction(
           ok <- FALSE
       }
       if(!ok)
-      #     check_systemR()
+      check_systemR()
       print("leaving check_system")
       return(ok)
       returnType(logical())
@@ -106,13 +106,21 @@ sampler_infection <- nimbleFunction(
       ## via the logProb_RJ argument
       print("entering propose_add_infected")
       if(!check_system()) {
-        stop("Found the system out of valid state entering propose_add_infected")
         #browser()
+        stop("Found the system out of valid state entering propose_add_infected")
       }
       current_numInfections <- model[[numInfections_node]]
       if(current_numInfections < numPlants) {
         proposal_numInfections <- current_numInfections+1
+        replaced_index <- model[[Inf_indices_node]][proposal_numInfections] ## AZ added this 2019-05-23; the plant index that will be replaced by iPlant
         model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
+        ## Find the old iPlant in Inf_indices_node and replace it with replaced_index
+        ## AZ added this 2019-05-23
+        for(i in (proposal_numInfections+1):numPlants){ 
+          if(model[[Inf_indices_node]][i] == iPlant) {
+            model[[Inf_indices_node]][i] <<- replaced_index
+          }
+        }
         model[[numInfections_node]] <<- proposal_numInfections
         startPossibleTime <- model[[Tmax_node]] - model[[latent_period_node]]
         endPossibleTime <- model[[Tmax_node]]
@@ -130,7 +138,8 @@ sampler_infection <- nimbleFunction(
       }
       if(!check_system()) {
         ## Using nimbleRcall to open browser()
-        #check_systemR()
+        check_systemR()
+        #browser()
         stop("Found the system out of valid state exiting propose_add_infected")
       }
       print("leaving propose_add_infected")
@@ -142,7 +151,8 @@ sampler_infection <- nimbleFunction(
       print("entering propose_remove_infected")
       if(!check_system()) {
         ## Using nimbleRcall to open browser()
-        #check_systemR()
+        check_systemR()
+        #browser()
         stop("Found the system out of valid state entering propose_remove_infected")
       }
       current_numInfections <- model[[numInfections_node]]
@@ -158,11 +168,13 @@ sampler_infection <- nimbleFunction(
         ## It doesn't matter that iPlant was inserted beyond Inf_indices[numInfections], even if rejected.
         ## But numInfections needs to be updated here
         if(jumped) {
+          model[[numInfections_node]] <<- current_numInfections - 1 ## AZ changed this 2019-05-23
           mvSaved[numInfections_node, 1] <<- current_numInfections - 1
         }
         if(!check_system()) {
           ## Using nimbleRcall to open browser()
-          #check_systemR()
+          check_systemR()
+          #browser()
           stop("Found the system out of valid state exiting propose_remove_infected")
         }
         
@@ -175,13 +187,20 @@ sampler_infection <- nimbleFunction(
                                      logProb_RJ_contributions = double(0, default = 0)) {
       returnType(logical(0))
       print("entering update_infection_time")
-      #crazyCase <- iPlant == 234
-      #if(crazyCase) print("In crazy case with iPlant == ", iPlant)
-      if(!check_system()) {
-        ## Using nimbleRcall to open browser()
-        #check_systemR()
-        stop("Found the system out of valid state entering update_infection_time")
+      crazyCase <- iPlant == 457
+      if(crazyCase) { 
+        print("In crazy case with iPlant == ", iPlant)
+        print("startPossibleTime == ", startPossibleTime)
+        print("endPossibleTime == ", endPossibleTime)
+        print("model[[numInfections_node]] == ", model[[numInfections_node]])
+        #print("Latent_period == ", model[[latent_period_node]])
+        print("Inf_times of iPlant == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ model[[numInfections_node]] ] ])
       }
+      # if(!check_system()) {
+      #   ## Using nimbleRcall to open #browser()
+      #   check_systemR()
+      #   stop("Found the system out of valid state entering update_infection_time")
+      # }
       currentLogProb <- model$getLogProb(calcNodes)
       current_iSorted <- 1
       numInfections <- model[[numInfections_node]]
@@ -196,7 +215,7 @@ sampler_infection <- nimbleFunction(
       ## startPossibleTime might equal endPossibleTime
       proposal <- startPossibleTime + runif(1) * (endPossibleTime - startPossibleTime);
 
-      #if(crazyCase) print("current_iSorted = ", current_iSorted, " current = ", current, " proposal = ", proposal)
+      if(crazyCase) print("current_iSorted = ", current_iSorted, " current = ", current, " proposal = ", proposal)
       
       if(proposal < current) {
         if(current_iSorted == 1) {
@@ -222,10 +241,10 @@ sampler_infection <- nimbleFunction(
           }
         }
       }
-      # if(crazyCase) {
-      #     print("proposal_iSorted = ", proposal_iSorted)
-      #     check_systemR()
-      # }
+      if(crazyCase) {
+         print("proposal_iSorted = ", proposal_iSorted)
+         #check_systemR()
+      }
       if(proposal_iSorted != current_iSorted) {
         ## If the plant is moved in the indices -- based on the proposal -- this routine shifts the indices of other plants accordingly
         if(proposal < current) {
@@ -244,11 +263,18 @@ sampler_infection <- nimbleFunction(
       }
       model[[Inf_indices_node]][proposal_iSorted] <<- iPlant
       model[[Inf_times_node]][iPlant] <<- proposal
-      if(!check_system()) {
-        ## Using nimbleRcall to open browser()
-        #check_systemR()
-        stop("Found the system out of valid state in update_infection_time before calculating proposal logProb.")
-        #browser()
+      ## AZ changed this 2019-05-23
+      ## propose_remove_infected necessarily hits this check_system because model[[numInfections_node]] hasn't been updated yet
+      ## this extra if() statement goes around this check_system if we're in propose_remove_infected
+      if(startPossibleTime != endPossibleTime){  
+        if(!check_system()) {
+          print("Proposed new index for iPlant == ", model[[Inf_indices_node]][proposal_iSorted])
+          print("Proposed new infection time for iPlant == ", model[[Inf_times_node]][iPlant])
+          ## Using nimbleRcall to open #browser()
+          check_systemR()
+          #browser()
+          stop("Found the system out of valid state in update_infection_time before calculating proposal logProb.")
+        } 
       }
       proposalLogProb <- model$calculate(calcNodes)
       logAcceptProb <- proposalLogProb - currentLogProb + logProb_RJ_contributions
@@ -266,7 +292,8 @@ sampler_infection <- nimbleFunction(
             mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo] <<- temp 
         }
         mvSaved[Inf_times_node, 1][iPlant] <<- proposal
-        mvSaved[Inf_indices_node, 1][proposal_iSorted] <<- iPlant
+        #mvSaved[Inf_indices_node, 1][proposal_iSorted] <<- iPlant
+        mvSaved[Inf_indices_node, 1] <<- model[[Inf_indices_node]] ## AZ changed this 2019-05-23
         mvSaved[logProb_Inf_indices_node, 1][1] <<- model[[logProb_Inf_indices_node]][1]
         jumped <- TRUE
       } else {
@@ -276,17 +303,24 @@ sampler_infection <- nimbleFunction(
             temp <-  mvSaved[Inf_indices_node, 1][moveStartTo:moveEndTo]
             model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- temp
           ##        model[[Inf_indices_node]][moveStartFrom:moveEndFrom] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo]
-        }
+          }
+        model[[numInfections_node]] <<- mvSaved[numInfections_node]
         model[[Inf_times_node]][iPlant] <<- current
-        model[[Inf_indices_node]][proposal_iSorted] <<- mvSaved[Inf_indices_node, 1][proposal_iSorted]
+        model[[Inf_indices_node]] <<- mvSaved[Inf_indices_node, 1] ## AZ changed this 2019-05-23
+        #model[[Inf_indices_node]][proposal_iSorted] <<- mvSaved[Inf_indices_node, 1][proposal_iSorted]
         model[[logProb_Inf_indices_node]][1] <<- mvSaved[logProb_Inf_indices_node, 1][1]
         jumped <- FALSE
       }
-      if(!check_system()) {
-        ## Using nimbleRcall to open browser()
-        #check_systemR()
-        stop("Found the system out of valid state exiting update_infection_time.")
-        #browser()
+      ## AZ changed this 2019-05-23
+      ## propose_remove_infected necessarily hits this check_system because model[[numInfections_node]] hasn't been updated yet
+      ## this extra if() statement goes around this check_system if we're in propose_remove_infected
+      if(startPossibleTime != endPossibleTime){  
+        if(!check_system()) {
+          ## Using nimbleRcall to open #browser()
+          check_systemR()
+          #browser()
+          stop("Found the system out of valid state exiting update_infection_time.")
+        }
       }
       print("exiting update_infection_time")
       return(jumped)

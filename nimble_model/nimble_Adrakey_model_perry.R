@@ -97,6 +97,13 @@ dDiseaseObs <- nimbleFunction(
 #### Data sets
 
 
+#### For sampler_infection to run correctly data sets need to be structured correctly, and slightly differently from Adrakey et al.:
+## Tmax represents the last observation time (syn. with t[obs] in Adrakey et al.)
+## time_interval needs to be a 2-column matrix, 
+## with the first column as the last time the plant was observed asymptomatic
+## and the second column as the first time the plant was observed diseased.
+## If a plant was never observed diseased, both columns of time_interval coded as Tmax and Inf_times == Tmax
+
 #### This is the data set supplied by Adrakey
 adcoo <- read.table("Adrakey2017_code/Coo.txt")
 str(adcoo)
@@ -108,13 +115,20 @@ adtime_interval <- read.table("Adrakey2017_code/time_interval.txt")
 str(adtime_interval)
 
 Coo <- as.matrix(adcoo)
-Inf_times <- adInf_tim[,1]
 Inf_indices <- as.numeric(adIndx_ind[,1])
-Y <- as.matrix(adtime_interval)
-Tmax <- 460
+Tmax <- max(adtime_interval)
+## Correct Tmax entries in Inf_times, now that Tmax == 360 (or Adrakey's t[obs])
+Inf_times <- adInf_tim[,1]
+Inf_times[Inf_times > Tmax] <- Tmax
 numPlants <- nrow(adcoo)
 numInfections <- sum(Inf_times < Tmax)
-
+## Correct and rename adtime_interval
+Y <- as.matrix(adtime_interval)
+for(i in 1:nrow(Y)){
+  if(Y[i,1] == 0 & Y[i,2] == 0){
+    Y[i,] <- c(Tmax, Tmax)
+  }
+}
 
 #### Set up data set from simulated infection dynamics
 # simulationResults <- readRDS("output/simulation_results_list.rds")
