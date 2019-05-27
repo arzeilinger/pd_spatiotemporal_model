@@ -194,7 +194,8 @@ MCMCconf$addSampler(type = 'sampler_infection',
                     ))
 MCMCconf$addMonitors('Inf_times')
 source("nimble_model/buildMCMC_debug.R")
-MCMC <- buildMCMC_debug(MCMCconf)
+##MCMC <- buildMCMC_debug(MCMCconf)
+MCMC <- buildMCMC(MCMCconf)
 #MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 

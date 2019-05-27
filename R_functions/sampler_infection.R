@@ -193,7 +193,7 @@ sampler_infection <- nimbleFunction(
         print("startPossibleTime == ", startPossibleTime)
         print("endPossibleTime == ", endPossibleTime)
         print("model[[numInfections_node]] == ", model[[numInfections_node]])
-        #print("Latent_period == ", model[[latent_period_node]])
+                                        #print("Latent_period == ", model[[latent_period_node]])
         print("Inf_times of iPlant == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ model[[numInfections_node]] ] ])
       }
       # if(!check_system()) {
@@ -304,9 +304,9 @@ sampler_infection <- nimbleFunction(
             model[[Inf_indices_node]][moveStartTo:moveEndTo] <<- temp
           ##        model[[Inf_indices_node]][moveStartFrom:moveEndFrom] <<- model[[Inf_indices_node]][moveStartTo:moveEndTo]
           }
-        model[[numInfections_node]] <<- mvSaved[numInfections_node]
+        model[[numInfections_node]] <<- mvSaved[numInfections_node, 1][1] ## PdV added [1], but I don't see why this line is needed.  I don't see this having been modified previously.  It looks like the add-sampler and remove-sampler steps manage model[[numInfections_node]] when necessary.
         model[[Inf_times_node]][iPlant] <<- current
-        model[[Inf_indices_node]] <<- mvSaved[Inf_indices_node, 1] ## AZ changed this 2019-05-23
+        model[[Inf_indices_node]] <<- mvSaved[Inf_indices_node, 1] ## AZ changed this 2019-05-23 ## This modification will copy the entire vector instead of the single value. Is it necessary?
         #model[[Inf_indices_node]][proposal_iSorted] <<- mvSaved[Inf_indices_node, 1][proposal_iSorted]
         model[[logProb_Inf_indices_node]][1] <<- mvSaved[logProb_Inf_indices_node, 1][1]
         jumped <- FALSE
