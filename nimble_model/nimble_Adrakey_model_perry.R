@@ -181,8 +181,11 @@ Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)
 
 source("R_functions/sampler_infection.R")
 
+## Version of sampler_infection without the printed text (except when an error is retuned)
+source("R_functions/sampler_infection_quiet.R")
+
 MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
-MCMCconf$addSampler(type = 'sampler_infection', 
+MCMCconf$addSampler(type = 'sampler_infection_quiet', 
                     target = 'Inf_indices',
                     control = list(
                       time_intervals = Y,
@@ -206,11 +209,11 @@ set.seed(123)
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
-set.seed(123)
+set.seed(1)
 Cmcmc$run(niter = 1000, reset = TRUE)
 
 
-samples <- runMCMC(Cmcmc, niter = 100)
+samples <- runMCMC(Cmcmc, niter = 1000)
 
 ## Run uncompiled MCMC
 set.seed(123)

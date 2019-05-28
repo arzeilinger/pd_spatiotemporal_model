@@ -14,7 +14,7 @@ check_systemR <- nimbleRcall(prototype = function(){},
 #### MCMC algorithm sampler_infection
 #### Based on Adrakey et al. 2017
 
-sampler_infection <- nimbleFunction(
+sampler_infection_quiet <- nimbleFunction(
   name = 'sampler_infection',
   contains = sampler_BASE,
   setup = function(model, mvSaved, target, control) {
