@@ -49,9 +49,9 @@ sampler_infection <- nimbleFunction(
   },
   run = function() {
     for(k in 1:trials) {
-      print("on trial ", k)
+      #print("on trial ", k)
       iPlant <- ceiling(runif(1,0,numPlants))
-      print("iPlant = ", iPlant)
+      #print("iPlant = ", iPlant)
       if(time_intervals[iPlant, 1] != model[[Tmax_node]]) {
         ## known symptomatic
         if(time_intervals[iPlant, 2] > time_intervals[iPlant, 1])
@@ -77,7 +77,7 @@ sampler_infection <- nimbleFunction(
   },
   methods = list(
     check_system = function() {
-      print("in check_system")
+      #print("in check_system")
       ok <- TRUE
       current_numInfections <- model[[numInfections_node]]
       if(current_numInfections > 1) {
@@ -96,7 +96,7 @@ sampler_infection <- nimbleFunction(
       }
       if(!ok)
       check_systemR()
-      print("leaving check_system")
+      #print("leaving check_system")
       return(ok)
       returnType(logical())
     },
@@ -104,7 +104,7 @@ sampler_infection <- nimbleFunction(
       ## put iPlant into the numInfections+1 position on Inf_indices
       ## Then do a regular update_infection_time by with different acceptance probability
       ## via the logProb_RJ argument
-      print("entering propose_add_infected")
+      #print("entering propose_add_infected")
       if(!check_system()) {
         #browser()
         stop("Found the system out of valid state entering propose_add_infected")
@@ -142,13 +142,13 @@ sampler_infection <- nimbleFunction(
         #browser()
         stop("Found the system out of valid state exiting propose_add_infected")
       }
-      print("leaving propose_add_infected")
+      #print("leaving propose_add_infected")
     },
     propose_remove_infected = function(iPlant = double()) {
       ## This can work similarly to propose_add_infection, 
       ## but the startPossibleTime and endPossibleTime passed to update_infection_time will both be Tmax
       ## so the proposal is forced to be Tmax
-      print("entering propose_remove_infected")
+      #print("entering propose_remove_infected")
       if(!check_system()) {
         ## Using nimbleRcall to open browser()
         check_systemR()
@@ -179,23 +179,22 @@ sampler_infection <- nimbleFunction(
         }
         
       }
-      print("exiting propose_remove_infected")
+      #print("exiting propose_remove_infected")
     },
     update_infection_time = function(iPlant = double(),
                                      startPossibleTime = double(),
                                      endPossibleTime = double(),
                                      logProb_RJ_contributions = double(0, default = 0)) {
       returnType(logical(0))
-      print("entering update_infection_time")
+      #print("entering update_infection_time")
       crazyCase <- iPlant == 254 | iPlant == 87
-      if(crazyCase) { 
-        print("In crazy case with iPlant == ", iPlant)
-        print("startPossibleTime == ", startPossibleTime)
-        print("endPossibleTime == ", endPossibleTime)
-        print("model[[numInfections_node]] == ", model[[numInfections_node]])
-                                        #print("Latent_period == ", model[[latent_period_node]])
-        print("Inf_times of infected == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ 1:model[[numInfections_node]] ] ])
-      }
+      #if(crazyCase) { 
+        #print("In crazy case with iPlant == ", iPlant)
+        #print("startPossibleTime == ", startPossibleTime)
+        #print("endPossibleTime == ", endPossibleTime)
+        #print("model[[numInfections_node]] == ", model[[numInfections_node]])
+        #print("Inf_times of infected == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ 1:model[[numInfections_node]] ] ])
+      #}
       # if(!check_system()) {
       #   ## Using nimbleRcall to open #browser()
       #   check_systemR()
@@ -215,7 +214,7 @@ sampler_infection <- nimbleFunction(
       ## startPossibleTime might equal endPossibleTime
       proposal <- startPossibleTime + runif(1) * (endPossibleTime - startPossibleTime);
 
-      if(crazyCase) print("current_iSorted = ", current_iSorted, " current = ", current, " proposal = ", proposal)
+      #if(crazyCase) print("current_iSorted = ", current_iSorted, " current = ", current, " proposal = ", proposal)
       
       if(proposal < current) {
         if(current_iSorted == 1) {
@@ -241,10 +240,10 @@ sampler_infection <- nimbleFunction(
           }
         }
       }
-      if(crazyCase) {
-         print("proposal_iSorted = ", proposal_iSorted)
-         #check_systemR()
-      }
+      # if(crazyCase) {
+      #    print("proposal_iSorted = ", proposal_iSorted)
+      #    #check_systemR()
+      # }
       if(proposal_iSorted != current_iSorted) {
         ## If the plant is moved in the indices -- based on the proposal -- this routine shifts the indices of other plants accordingly
         if(proposal < current) {
@@ -280,7 +279,7 @@ sampler_infection <- nimbleFunction(
       logAcceptProb <- proposalLogProb - currentLogProb + logProb_RJ_contributions
       outcome <- decide(logAcceptProb)
       #if(decide(logAcceptProb)) {
-      print("outcome = ", outcome)
+      #print("outcome = ", outcome)
       #print(moveStartTo, " ", moveEndTo, " ", moveStartFrom, " ", moveEndFrom, " ", proposal_iSorted, current_iSorted)
       if(outcome) {
         ## accept
@@ -314,15 +313,15 @@ sampler_infection <- nimbleFunction(
       ## AZ changed this 2019-05-23
       ## propose_remove_infected necessarily hits this check_system because model[[numInfections_node]] hasn't been updated yet
       ## this extra if() statement goes around this check_system if we're in propose_remove_infected
-      if(crazyCase) { 
-        print("In crazy case with iPlant == ", iPlant)
-        print("startPossibleTime == ", startPossibleTime)
-        print("endPossibleTime == ", endPossibleTime)
-        print("model[[numInfections_node]] == ", model[[numInfections_node]])
-        print("Inf_times of infected == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ 1:model[[numInfections_node]] ] ])
-        print("jumped == ", jumped)
-        #stop("Stopped at crazyCase")
-      }
+      # if(crazyCase) { 
+      #   print("In crazy case with iPlant == ", iPlant)
+      #   print("startPossibleTime == ", startPossibleTime)
+      #   print("endPossibleTime == ", endPossibleTime)
+      #   print("model[[numInfections_node]] == ", model[[numInfections_node]])
+      #   print("Inf_times of infected == ", model[[Inf_times_node]][ model[[Inf_indices_node]][ 1:model[[numInfections_node]] ] ])
+      #   print("jumped == ", jumped)
+      #   #stop("Stopped at crazyCase")
+      # }
       if(startPossibleTime != endPossibleTime){  
         if(!check_system()) {
           ## Using nimbleRcall to open #browser()
@@ -331,7 +330,7 @@ sampler_infection <- nimbleFunction(
           stop("Found the system out of valid state exiting update_infection_time.")
         }
       }
-      print("exiting update_infection_time")
+      #print("exiting update_infection_time")
       return(jumped)
     },
     reset = function() {

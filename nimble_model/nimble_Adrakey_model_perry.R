@@ -207,7 +207,7 @@ Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
 set.seed(123)
-Cmcmc$run(niter = 100, reset = TRUE)
+Cmcmc$run(niter = 1000, reset = TRUE)
 
 
 samples <- runMCMC(Cmcmc, niter = 100)
