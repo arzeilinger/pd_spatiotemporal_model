@@ -179,10 +179,15 @@ inits <- list(alpha = 0.1,
 Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
 Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)   
 
+## MCMC sampler_infection
 source("R_functions/sampler_infection.R")
 
 ## Version of sampler_infection without the printed text (except when an error is retuned)
 source("R_functions/sampler_infection_quiet.R")
+
+## version of buildMCMC for debugging
+source("nimble_model/buildMCMC_debug.R")
+
 
 MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection_quiet', 
@@ -196,25 +201,60 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
-source("nimble_model/buildMCMC_debug.R")
-##MCMC <- buildMCMC_debug(MCMCconf)
+#MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
-#MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 
-
-set.seed(123)
+## So that set.seed is the same for compiled and uncompiled runs
+seed <- 1
 
 ## Compile MCMC for running in C++
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
-set.seed(1)
-Cmcmc$run(niter = 1000, reset = TRUE)
+set.seed(seed)
+Cmcmc$run(niter = 100, reset = TRUE)
 
-
-samples <- runMCMC(Cmcmc, niter = 1000)
 
 ## Run uncompiled MCMC
-set.seed(123)
+set.seed(seed)
 MCMC$run(niter = 100)
+
+
+####################################################################################################
+#### Large MCMC run on Adrakey simulated data
+niter <- 100000
+nburnin <- 1000
+thin <- 10
+nchains <- 1
+## Check returned no. of samples
+floor((niter-nburnin)/thin)
+
+system.time(samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
+                               nchains = nchains, samplesAsCodaMCMC = TRUE))
+## 100000 iterations took 9.6 hours
+saveRDS(samples, "output/raw_mcmc_samples.rds")
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samples, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samples, 2, mean),
+  `median`  = apply(samples, 2, median),
+  `ciupper` = apply(samples, 2, function(x) quantile(x, 0.975))
+  ), 8)
+
+tail(res)
+
+
+#### Examining mixing
+library(coda)
+source("R_functions/plotting_functions.R")
+## Getting just the model parameters
+paramcols <- which(attr(samples, "dimnames")[[2]] == "alpha" | attr(samples, "dimnames")[[2]] == "beta" | attr(samples, "dimnames")[[2]] == "epsilon")
+params <- samples[,paramcols]
+
+pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
+  plot(as.mcmc(params))
+dev.off()
+
+samplesPlot(samples, c('epsilon'), width = 4, height = 2, traceplot = TRUE, densityplot = FALSE)
