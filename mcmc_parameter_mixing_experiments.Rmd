@@ -1,0 +1,163 @@
+---
+title: "Experiments with parameter mixing for Adrakey model"
+author: "Adam Zeiliinger"
+date: "6/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Results from examining mixing and estimation problems with Adrakey model parameters
+
+Below are the results for three "experiments". First, I set each of the three parameters (alpha, beta, and epsilon) equal to the "true value", where the true value is the one used by Adrakey et al. to run their simulation in the Suppl. Material. Then I removed monitors on two of the three parameters.
+
+The true values of the parameters are:
+  * alpha = 0.08
+  * beta = 7e-06
+  * epsilon = 5e-05
+
+I ran each experiment with the following MCMC conditions:  
+  * iterations = 100K   
+  * burnin = 1000  
+  * thin = 2  
+  * nchains = 2  
+
+
+```{r, echo = FALSE, include = FALSE}
+
+my.packages <- c("dplyr", "tidyr", "ggplot2", "coda", "data.table")
+lapply(my.packages, require, character.only = TRUE)
+
+
+```
+
+
+
+## Results of experiment monitoring alpha
+
+```{r, echo=TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_alpha_test.rds")
+samplesAlpha <- samples[[1]]
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesAlpha, "dimnames")[[2]] == "alpha")
+paramsAlpha <- samplesAlpha[,paramcols]
+## Make paramList a list of MCMC samples of just the three parameters
+paramAlphaList <- list(paramsAlpha, samples[[2]][,paramcols])
+
+plot(paramsAlpha)
+
+## Gelman-Rubin diagnostic
+gelman.diag(paramAlphaList)
+
+## Effective sample size
+round(cbind(
+  niterations = length(paramsAlpha),
+  ESS    = effectiveSize(paramsAlpha)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesAlpha, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesAlpha, 2, mean),
+  `median`  = apply(samplesAlpha, 2, median),
+  `ciupper` = apply(samplesAlpha, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+```
+
+
+
+## Results of experiments monitoring beta
+
+```{r, echo = TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_beta_test.rds")
+samplesBeta <- samples[[1]]
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesBeta, "dimnames")[[2]] == "beta")
+paramsBeta <- samplesBeta[,paramcols]
+## Make paramList a list of MCMC samples of just the three parameters
+paramBetaList <- list(paramsBeta, samples[[2]][,paramcols])
+
+plot(paramsBeta)
+
+
+## Burnin apparently not long enough for beta
+## Try plotting again after removing an additional 1000 iterations
+paramsBeta <- paramsBeta[1001:length(paramsBeta)]
+plot(as.mcmc(paramsBeta))
+
+
+## Gelman-Rubin diagnostic
+gelman.diag(paramBetaList)
+
+## Effective sample size
+round(cbind(
+  niterations = length(paramsBeta),
+  ESS    = effectiveSize(paramsBeta)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesBeta, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesBeta, 2, mean),
+  `median`  = apply(samplesBeta, 2, median),
+  `ciupper` = apply(samplesBeta, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+```
+
+
+
+## Results of experiments monitoring epsilon
+
+```{r, echo = TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_epsilon_test.rds")
+samplesEpsilon <- samples[[1]]
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesEpsilon, "dimnames")[[2]] == "epsilon")
+paramsEpsilon <- samplesEpsilon[,paramcols]
+## Make paramList a list of MCMC samples of just the three parameters
+paramEpsilonList <- list(paramsEpsilon, samples[[2]][,paramcols])
+
+plot(paramsEpsilon)
+
+## Gelman-Rubin diagnostic
+gelman.diag(paramEpsilonList)
+
+## Effective sample size
+round(cbind(
+  niterations = length(paramsEpsilon),
+  ESS    = effectiveSize(paramsEpsilon)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesEpsilon, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesEpsilon, 2, mean),
+  `median`  = apply(samplesEpsilon, 2, median),
+  `ciupper` = apply(samplesEpsilon, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+```
+
+

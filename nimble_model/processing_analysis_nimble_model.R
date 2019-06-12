@@ -10,7 +10,7 @@ source("R_functions/plotting_functions.R")
 
 
 #### Read in raw MCMC samples from cluster run
-samples <- readRDS("output/raw_mcmc_samples.rds")
+samples <- readRDS("output/raw_mcmc_samples_alpha_test.rds")
 str(samples)
 samples1 <- samples[[1]]
 
@@ -21,7 +21,7 @@ params1 <- samples1[,paramcols]
 ## Make paramList a list of MCMC samples of just the three parameters
 paramList <- list(params1, samples[[2]][,paramcols])
 
-pdf("output/trace_density_plots_parameters_Adrakey_simulation_cluster.pdf")
+pdf("output/trace_density_plots_parameters_Adrakey_simulation_alpha_test.pdf")
   plot(params1)
 dev.off()
 
