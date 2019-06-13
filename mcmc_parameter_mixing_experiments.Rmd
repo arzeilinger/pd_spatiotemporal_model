@@ -13,16 +13,16 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Below are the results for three "experiments". First, I set each of the three parameters (alpha, beta, and epsilon) equal to the "true value", where the true value is the one used by Adrakey et al. to run their simulation in the Suppl. Material. Then I removed monitors on two of the three parameters.
 
-The true values of the parameters are:
-  * alpha = 0.08
-  * beta = 7e-06
-  * epsilon = 5e-05
+The true values of the parameters are:  
+  - alpha = 0.08  
+  - beta = 7e-06  
+  - epsilon = 5e-05  
 
 I ran each experiment with the following MCMC conditions:  
-  * iterations = 100K   
-  * burnin = 1000  
-  * thin = 2  
-  * nchains = 2  
+  - iterations = 100K   
+  - burnin = 1000  
+  - thin = 2  
+  - nchains = 2  
 
 
 ```{r, echo = FALSE, include = FALSE}

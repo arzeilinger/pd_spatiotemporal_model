@@ -190,6 +190,11 @@ inits <- list(alpha = 0.1,
 Rmodel <- nimbleModel(code = code, constants = constants, data = data, inits = inits)
 Cmodel <- compileNimble(Rmodel, resetFunctions = TRUE)   
 
+## Set parameters to "true values" from Adrakey et al. Suppl Mat
+Cmodel$alpha <- 0.08
+Cmodel$beta <- 7e-06
+Cmodel$epsilon <- 5e-05
+
 ## MCMC sampler_infection
 #source("R_functions/sampler_infection.R")
 
@@ -212,6 +217,8 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
+MCMCconf$removeSamplers('alpha')
+MCMCconf$removeSamplers('beta')
 #MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
@@ -254,14 +261,16 @@ print(tf - ti)
 #                               nchains = nchains, samplesAsCodaMCMC = TRUE)
 
 
-saveRDS(samples, "output/raw_mcmc_samples.rds")
+saveRDS(samples, "output/raw_mcmc_samples_epsilon_test.rds")
+
+samples1 <- samples[[1]]
 
 ## Summary of posterior distributions
 res <- round(cbind(
-  `cilower` = apply(samples, 2, function(x) quantile(x, 0.025)),
-  `mean`    = apply(samples, 2, mean),
-  `median`  = apply(samples, 2, median),
-  `ciupper` = apply(samples, 2, function(x) quantile(x, 0.975))
+  `cilower` = apply(samples1, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samples1, 2, mean),
+  `median`  = apply(samples1, 2, median),
+  `ciupper` = apply(samples1, 2, function(x) quantile(x, 0.975))
   ), 8)
 
 print(tail(res))
@@ -269,8 +278,8 @@ print(tail(res))
 
 #### Examining mixing
 ## Getting just the model parameters
-paramcols <- which(attr(samples, "dimnames")[[2]] == "alpha" | attr(samples, "dimnames")[[2]] == "beta" | attr(samples, "dimnames")[[2]] == "epsilon")
-params <- samples[,paramcols]
+paramcols <- which(attr(samples1, "dimnames")[[2]] == "alpha" | attr(samples1, "dimnames")[[2]] == "beta" | attr(samples1, "dimnames")[[2]] == "epsilon")
+params <- samples1[,paramcols]
 
 pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
   plot(as.mcmc(params))
