@@ -204,7 +204,6 @@ source("R_functions/sampler_infection_quiet.R")
 ## version of buildMCMC for debugging
 #source("nimble_model/buildMCMC_debug.R")
 
-
 MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection_quiet', 
                     target = 'Inf_indices',
@@ -217,21 +216,38 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
-MCMCconf$removeSamplers('alpha')
-MCMCconf$removeSamplers('beta')
-#MCMC <- buildMCMC_debug(MCMCconf)
+MCMCconf$removeSamplers(c('alpha', 'beta', 'epsilon'))
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 
+
+
+MCMCconf2 <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
+MCMCconf2$addSampler(type = 'sampler_infection_quiet', 
+                    target = 'Inf_indices',
+                    control = list(
+                      time_intervals = Y,
+                      Inf_times_node = 'Inf_times',
+                      Inf_indices_node = 'Inf_indices',
+                      numInfections_node = 'numInfections',
+                      latent_period_node = 'latent_period',
+                      Tmax_node = 'Tmax'
+                    ))
+MCMCconf2$addMonitors('Inf_times')
+MCMCconf2$removeSamplers(c('alpha', 'beta'))
+#MCMC <- buildMCMC_debug(MCMCconf)
+MCMC2 <- buildMCMC(MCMCconf2)
+MCMCconf2$printSamplers()
+
 ## So that set.seed is the same for compiled and uncompiled runs
-#seed <- 1
+seed <- 1
 
 ## Compile MCMC for running in C++
-Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
+Cmcmc <- compileNimble(MCMC, MCMC2, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
-# set.seed(seed)
-# Cmcmc$run(niter = 100, reset = TRUE)
+set.seed(seed)
+Cmcmc$MCMC$run(niter = 100, reset = TRUE)
 
 
 ####################################################################################################
@@ -245,25 +261,22 @@ print(floor((niter-nburnin)/thin))
 
 ti <- Sys.time()
 
-samples <- foreach(mcmcseed = 1:2) %dopar% {
-	#set.seed(mcmcseed)
-	#Cmcmc$run(niter)
-	#as.matrix(Cmcmc$mvSamples[(burnin+1):niter,]
-	runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin,
-		nchains = nchains, setSeed = mcmcseed, samplesAsCodaMCMC = TRUE)
+# samples <- foreach(mcmcseed = 1:2) %dopar% {
+# 	runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin,
+# 		nchains = nchains, setSeed = mcmcseed, samplesAsCodaMCMC = TRUE)
+# }
+
+samples <- foreach(mcmcConf = 1:2) %dopar% {
+  runMCMC(Cmcmc[[mcmcConf]], niter = niter, nburnin = nburnin, thin = thin, 
+                     nchains = nchains, samplesAsCodaMCMC = TRUE)
 }
 
 tf <- Sys.time()
 print(tf - ti)
 
-
-#samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
-#                               nchains = nchains, samplesAsCodaMCMC = TRUE)
-
-
 saveRDS(samples, "output/raw_mcmc_samples_epsilon_test.rds")
 
-samples1 <- samples[[1]]
+samples1 <- samples[[2]]
 
 ## Summary of posterior distributions
 res <- round(cbind(
@@ -278,11 +291,11 @@ print(tail(res))
 
 #### Examining mixing
 ## Getting just the model parameters
-paramcols <- which(attr(samples1, "dimnames")[[2]] == "alpha" | attr(samples1, "dimnames")[[2]] == "beta" | attr(samples1, "dimnames")[[2]] == "epsilon")
-params <- samples1[,paramcols]
-
-pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
-  plot(as.mcmc(params))
-dev.off()
+#paramcols <- which(attr(samples1, "dimnames")[[2]] == "alpha" | attr(samples1, "dimnames")[[2]] == "beta" | attr(samples1, "dimnames")[[2]] == "epsilon")
+# params <- samples1[,paramcols]
+# 
+# pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
+#   plot(as.mcmc(params))
+# dev.off()
 
 print("SUCCESS!!")
