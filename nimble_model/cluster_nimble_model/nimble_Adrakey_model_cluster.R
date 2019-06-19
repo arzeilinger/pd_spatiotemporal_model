@@ -1,14 +1,14 @@
 #### Running Adrakey spatiotemporal epidemic model on the cluster
 
 ## Need to specify library location for nimble because of issues installing it on the cluster
-library(foreach)
-library(doParallel)
+#library(foreach)
+#library(doParallel)
 library(nimble, lib.loc = '~/R/tmp')
 library(coda, lib.loc = '~/R/tmp')
 
 ## Specify SLURM environmental variables for parallelization
-nCores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE'))
-registerDoParallel(nCores)
+#nCores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE'))
+#registerDoParallel(nCores)
 
 
 #### Simple exponential kernel as nimbleFunction
@@ -234,7 +234,7 @@ MCMCconf2$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf2$addMonitors('Inf_times')
-MCMCconf2$removeSamplers(c('alpha', 'beta'))
+MCMCconf2$removeSamplers(c('alpha', 'epsilon'))
 #MCMC <- buildMCMC_debug(MCMCconf)
 MCMC2 <- buildMCMC(MCMCconf2)
 MCMCconf2$printSamplers()
@@ -246,18 +246,18 @@ seed <- 1
 Cmcmc <- compileNimble(MCMC, MCMC2, project = Rmodel, resetFunctions = TRUE)
 
 ## Run compiled MCMC
-set.seed(seed)
-Cmcmc$MCMC$run(niter = 100, reset = TRUE)
+#set.seed(seed)
+#Cmcmc$MCMC$run(niter = 100, reset = TRUE)
 
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-niter <- 100000
-nburnin <- 1000
+#niter <- 100
+nburnin <- 1
 thin <- 2
 nchains <- 1
 ## Check returned no. of samples
-print(floor((niter-nburnin)/thin))
+#print(floor((niter-nburnin)/thin))
 
 ti <- Sys.time()
 
@@ -266,17 +266,23 @@ ti <- Sys.time()
 # 		nchains = nchains, setSeed = mcmcseed, samplesAsCodaMCMC = TRUE)
 # }
 
-samples <- foreach(mcmcConf = 1:2) %dopar% {
-  runMCMC(Cmcmc[[mcmcConf]], niter = niter, nburnin = nburnin, thin = thin, 
-                     nchains = nchains, samplesAsCodaMCMC = TRUE)
-}
+#samples <- foreach(mcmcConf = 1:2) %dopar% {
+#  runMCMC(Cmcmc[[mcmcConf]], niter = niter, nburnin = nburnin, thin = thin, 
+#                     nchains = nchains, samplesAsCodaMCMC = TRUE)
+#}
+
+samples <- runMCMC(Cmcmc$MCMC, niter = 5000, nburnin = nburnin, thin = thin,
+		   nchains = nchains, samplesAsCodaMCMC = TRUE)
+samples2 <- runMCMC(Cmcmc$MCMC2, niter = 100000, nburnin = nburnin, thin = thin,
+		    nchains = nchains, samplesAsCodaMCMC = TRUE)
 
 tf <- Sys.time()
 print(tf - ti)
 
-saveRDS(samples, "output/raw_mcmc_samples_epsilon_test.rds")
+samplesList <- list(samples, samples2)
+saveRDS(samplesList, "output/raw_mcmc_samples_multi-conf_beta_test_in_serial.rds")
 
-samples1 <- samples[[2]]
+samples1 <- samples2
 
 ## Summary of posterior distributions
 res <- round(cbind(

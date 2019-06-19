@@ -23,6 +23,7 @@ I ran each experiment with the following MCMC conditions:
   - burnin = 1000  
   - thin = 2  
   - nchains = 2  
+  - RNG seed = 1 (seed set differently for different MCMC chains, but only chain 1 analyzed below)
 
 
 ```{r, echo = FALSE, include = FALSE}
@@ -161,3 +162,159 @@ tail(res)
 ```
 
 
+## Results from mixing experiments employing multiple configurations
+
+For these runs, I set up two MCMC configurations:  
+  - MCMCconf: where samplers for all three parameters (alpha, beta, epsilon) were removed, so only infection times were sampled  
+  - MCMCconf2: where samplers were removed for 2 out of 3 parameters; here infection times and one parameter (either beta or epsilon) were sampled
+
+I ran the MCMCs with these configurations in serial. I specified 5,000 iterations for the first run (for MCMCconf) and 100,000 iterations for the second run (for MCMCconf2). Otherwise, the specifications for the MCMCs were identical. I did not set a RNG seed prior to either MCMC run.
+  
+
+```{r, eval = FALSE, include = TRUE}
+
+MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
+MCMCconf$addSampler(type = 'sampler_infection_quiet', 
+                    target = 'Inf_indices',
+                    control = list(
+                      time_intervals = Y,
+                      Inf_times_node = 'Inf_times',
+                      Inf_indices_node = 'Inf_indices',
+                      numInfections_node = 'numInfections',
+                      latent_period_node = 'latent_period',
+                      Tmax_node = 'Tmax'
+                    ))
+MCMCconf$addMonitors('Inf_times')
+MCMCconf$removeSamplers(c('alpha', 'beta', 'epsilon'))
+MCMC <- buildMCMC(MCMCconf)
+MCMCconf$printSamplers()
+
+
+
+MCMCconf2 <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
+MCMCconf2$addSampler(type = 'sampler_infection_quiet', 
+                    target = 'Inf_indices',
+                    control = list(
+                      time_intervals = Y,
+                      Inf_times_node = 'Inf_times',
+                      Inf_indices_node = 'Inf_indices',
+                      numInfections_node = 'numInfections',
+                      latent_period_node = 'latent_period',
+                      Tmax_node = 'Tmax'
+                    ))
+MCMCconf2$addMonitors('Inf_times')
+MCMCconf2$removeSamplers(c('alpha', 'beta'))
+MCMC2 <- buildMCMC(MCMCconf2)
+MCMCconf2$printSamplers()
+
+## Compile MCMC for running in C++
+Cmcmc <- compileNimble(MCMC, MCMC2, project = Rmodel, resetFunctions = TRUE)
+
+
+####################################################################################################
+#### Multiple MCMC run on Adrakey simulated data
+
+nburnin <- 1
+thin <- 2
+nchains <- 1
+
+samples <- runMCMC(Cmcmc$MCMC, niter = 5000, nburnin = nburnin, thin = thin, 
+                   nchains = nchains, samplesAsCodaMCMC = TRUE)
+samples2 <- runMCMC(Cmcmc$MCMC2, niter = 100000, nburnin = nburnin, thin = thin, 
+                    nchains = nchains, samplesAsCodaMCMC = TRUE)
+
+
+
+```
+
+
+## Results of the multi-configurations experiments:
+### Epsilon sampled; examining only the posterior of the 2nd MCMC run (samples2), where epsilon was sampled along with infection times 
+
+
+```{r, echo = TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_multi-conf_epsilon_test_in_serial.rds")
+samplesMCepsilon <- samples[[2]]
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesMCepsilon, "dimnames")[[2]] == "epsilon")
+paramsEpsilon <- samplesMCepsilon[,paramcols]
+
+plot(paramsEpsilon)
+
+
+## Apply a burnin and plot again
+paramsEpsilon <- paramsEpsilon[5001:length(paramsEpsilon)]
+plot(as.mcmc(paramsEpsilon))
+
+
+## Effective sample size
+round(cbind(
+  niterations = length(paramsEpsilon),
+  ESS    = effectiveSize(paramsEpsilon)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesMCepsilon, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesMCepsilon, 2, mean),
+  `median`  = apply(samplesMCepsilon, 2, median),
+  `ciupper` = apply(samplesMCepsilon, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+
+```
+
+
+
+## Results of the multi-configurations experiments:
+### Beta sampled; examining only the posterior of the 2nd MCMC run (samples2), where beta was sampled along with infection times 
+
+
+```{r, echo = TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_multi-conf_beta_test_in_serial.rds")
+samplesMCbeta <- samples[[2]]
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesMCbeta, "dimnames")[[2]] == "beta")
+paramsBeta <- samplesMCbeta[,paramcols]
+
+plot(paramsBeta)
+
+
+## Apply a burnin and plot again
+paramsBeta <- paramsBeta[5001:length(paramsBeta)]
+plot(as.mcmc(paramsBeta))
+
+
+## Effective sample size
+round(cbind(
+  niterations = length(paramsBeta),
+  ESS    = effectiveSize(paramsBeta)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesMCbeta, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesMCbeta, 2, mean),
+  `median`  = apply(samplesMCbeta, 2, median),
+  `ciupper` = apply(samplesMCbeta, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+
+```
+
+
+## Summary
+
+In summary, the results of the multi-configuration experiments were equivalent to the first set of experiments. The Effective Sample Size and posterior distributions were unaffected after initializing the sampling of infection times with the first MCMC run.
