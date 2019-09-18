@@ -61,6 +61,7 @@ dDiseaseSpread <- nimbleFunction(
     ## Need function to sort Inf_times and Inf_indices within nimble
     ## We think that the Adrakey code missed epsilon for the first infected plant
     P <- log(epsilon) ## log force of infection for first infected plant
+    #P <- 0
     for(iTargetPlant in 2:numInfections) {
       m <- 0
       for(iSourcePlant in 1:(iTargetPlant-1)) {
@@ -78,6 +79,16 @@ dDiseaseSpread <- nimbleFunction(
     else return(exp(logProb))
   })
 
+## Testing dDiseaseSpread code
+# dDiseaseSpread(x = Inf_indices,
+#                alpha = 0.08, 
+#                beta = 4e-05,
+#                epsilon = 6e-04, 
+#                Coo = Coo[1:numPlants, 1:2], 
+#                Inf_times = Inf_times[1:numPlants], 
+#                Tmax = Tmax,
+#                numPlants = numPlants, 
+#                numInfections = numInfections)
 
 #### nimbleFunction for observations
 dDiseaseObs <- nimbleFunction(
@@ -116,8 +127,8 @@ str(adtime_interval)
 
 Coo <- as.matrix(adcoo)
 Inf_indices <- as.numeric(adIndx_ind[,1])
-Tmax <- max(adtime_interval)
-## Correct Tmax entries in Inf_times, now that Tmax == 360 (or Adrakey's t[obs])
+Tmax <- 460
+## Correct Tmax entries in Inf_times, now that Tmax == 460 (or Adrakey's t[obs])
 Inf_times <- adInf_tim[,1]
 Inf_times[Inf_times > Tmax] <- Tmax
 numPlants <- nrow(adcoo)
@@ -129,6 +140,7 @@ for(i in 1:nrow(Y)){
     Y[i,] <- c(Tmax, Tmax)
   }
 }
+tail(Y)
 
 #### Set up data set from simulated infection dynamics
 # simulationResults <- readRDS("output/simulation_results_list.rds")
@@ -204,6 +216,7 @@ MCMCconf$addMonitors('Inf_times')
 #MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
+MCMCconf$printMonitors()
 
 ## So that set.seed is the same for compiled and uncompiled runs
 seed <- 1
@@ -223,17 +236,23 @@ MCMC$run(niter = 100)
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-niter <- 100000
+niter <- 40000
 nburnin <- 1000
-thin <- 10
+thin <- 1
 nchains <- 1
 ## Check returned no. of samples
 floor((niter-nburnin)/thin)
 
 system.time(samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
-                               nchains = nchains, samplesAsCodaMCMC = TRUE))
+                               nchains = nchains, setSeed = seed, samplesAsCodaMCMC = TRUE))
+samples2 <- samples
+saveRDS(samples, file = "output/raw_mcmc_samples_test_2_2019-09-12.rds")
+
 ## 100000 iterations took 9.6 hours
 saveRDS(samples, "output/raw_mcmc_samples.rds")
+
+oldSamples <- readRDS("output/raw_mcmc_samples.rds")
+samples <- oldSamples[[1]]
 
 ## Summary of posterior distributions
 res <- round(cbind(
@@ -258,3 +277,21 @@ pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
 dev.off()
 
 samplesPlot(samples, c('epsilon'), width = 4, height = 2, traceplot = TRUE, densityplot = FALSE)
+
+
+#### Looking at infection times
+meanInfTimes <- res[grep("Inf_times", row.names(res)), "mean"]
+hist(meanInfTimes, breaks = seq(0,Tmax,by=30))
+hist(Inf_times, breaks = seq(0,490,by=30))
+## Mean epidemic size at 340
+sum(meanInfTimes <= 340) # From the MCMC
+sum(Inf_times <= 340) # From the data
+## Mean epidemic size at Tmax = 460
+sum(meanInfTimes < 460)
+summary(meanInfTimes)
+
+
+sum(Inf_times <= 130)
+sort(Inf_times[Inf_times <= 130])
+
+sum(Inf_times <= 260)

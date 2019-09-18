@@ -116,6 +116,7 @@ sampler_infection <- nimbleFunction(
         model[[Inf_indices_node]][proposal_numInfections] <<- iPlant
         ## Find the old iPlant in Inf_indices_node and replace it with replaced_index
         ## AZ added this 2019-05-23
+        ## Could use break or while to make this more efficient
         for(i in (proposal_numInfections+1):numPlants){ 
           if(model[[Inf_indices_node]][i] == iPlant) {
             model[[Inf_indices_node]][i] <<- replaced_index

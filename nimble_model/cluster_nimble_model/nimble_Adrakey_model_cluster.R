@@ -1,14 +1,14 @@
 #### Running Adrakey spatiotemporal epidemic model on the cluster
 
 ## Need to specify library location for nimble because of issues installing it on the cluster
-#library(foreach)
-#library(doParallel)
+library(foreach)
+library(doParallel)
 library(nimble, lib.loc = '~/R/tmp')
 library(coda, lib.loc = '~/R/tmp')
 
 ## Specify SLURM environmental variables for parallelization
-#nCores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE'))
-#registerDoParallel(nCores)
+nCores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE'))
+registerDoParallel(nCores)
 
 
 #### Simple exponential kernel as nimbleFunction
@@ -127,8 +127,8 @@ str(adtime_interval)
 
 Coo <- as.matrix(adcoo)
 Inf_indices <- as.numeric(adIndx_ind[,1])
-Tmax <- max(adtime_interval)
-## Correct Tmax entries in Inf_times, now that Tmax == 360 (or Adrakey's t[obs])
+Tmax <- 460
+## Correct Tmax entries in Inf_times, now that Tmax == 460 (or Adrakey's t[obs])
 Inf_times <- adInf_tim[,1]
 Inf_times[Inf_times > Tmax] <- Tmax
 numPlants <- nrow(adcoo)
@@ -216,31 +216,12 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
-MCMCconf$removeSamplers(c('alpha', 'beta', 'epsilon'))
+#MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
 
-
-
-MCMCconf2 <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
-MCMCconf2$addSampler(type = 'sampler_infection_quiet', 
-                    target = 'Inf_indices',
-                    control = list(
-                      time_intervals = Y,
-                      Inf_times_node = 'Inf_times',
-                      Inf_indices_node = 'Inf_indices',
-                      numInfections_node = 'numInfections',
-                      latent_period_node = 'latent_period',
-                      Tmax_node = 'Tmax'
-                    ))
-MCMCconf2$addMonitors('Inf_times')
-MCMCconf2$removeSamplers(c('alpha', 'epsilon'))
-#MCMC <- buildMCMC_debug(MCMCconf)
-MCMC2 <- buildMCMC(MCMCconf2)
-MCMCconf2$printSamplers()
-
 ## So that set.seed is the same for compiled and uncompiled runs
-seed <- 1
+#seed <- 1
 
 ## Compile MCMC for running in C++
 Cmcmc <- compileNimble(MCMC, MCMC2, project = Rmodel, resetFunctions = TRUE)
@@ -252,37 +233,26 @@ Cmcmc <- compileNimble(MCMC, MCMC2, project = Rmodel, resetFunctions = TRUE)
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-#niter <- 100
-nburnin <- 1
-thin <- 2
-nchains <- 1
+niter <- 40000
+nburnin <- 1000
+thin <- 1
+nchains <- 2
 ## Check returned no. of samples
 #print(floor((niter-nburnin)/thin))
 
 ti <- Sys.time()
 
-# samples <- foreach(mcmcseed = 1:2) %dopar% {
-# 	runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin,
-# 		nchains = nchains, setSeed = mcmcseed, samplesAsCodaMCMC = TRUE)
-# }
-
-#samples <- foreach(mcmcConf = 1:2) %dopar% {
-#  runMCMC(Cmcmc[[mcmcConf]], niter = niter, nburnin = nburnin, thin = thin, 
-#                     nchains = nchains, samplesAsCodaMCMC = TRUE)
-#}
-
-samples <- runMCMC(Cmcmc$MCMC, niter = 5000, nburnin = nburnin, thin = thin,
-		   nchains = nchains, samplesAsCodaMCMC = TRUE)
-samples2 <- runMCMC(Cmcmc$MCMC2, niter = 100000, nburnin = nburnin, thin = thin,
-		    nchains = nchains, samplesAsCodaMCMC = TRUE)
+samples <- foreach(mcmcseed = 1:2) %dopar% {
+	runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin,
+		nchains = nchains, setSeed = mcmcseed, samplesAsCodaMCMC = TRUE)
+}
 
 tf <- Sys.time()
 print(tf - ti)
 
-samplesList <- list(samples, samples2)
-saveRDS(samplesList, "output/raw_mcmc_samples_multi-conf_beta_test_in_serial.rds")
+saveRDS(samples, "output/raw_mcmc_samples_test_2019-09.rds")
 
-samples1 <- samples2
+samples1 <- samples[[1]]
 
 ## Summary of posterior distributions
 res <- round(cbind(

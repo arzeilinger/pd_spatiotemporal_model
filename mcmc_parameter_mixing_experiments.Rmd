@@ -289,7 +289,7 @@ paramsBeta <- samplesMCbeta[,paramcols]
 plot(paramsBeta)
 
 
-## Apply a burnin and plot again
+## Apply an additional burnin and plot again
 paramsBeta <- paramsBeta[5001:length(paramsBeta)]
 plot(as.mcmc(paramsBeta))
 
@@ -318,3 +318,64 @@ tail(res)
 ## Summary
 
 In summary, the results of the multi-configuration experiments were equivalent to the first set of experiments. The Effective Sample Size and posterior distributions were unaffected after initializing the sampling of infection times with the first MCMC run.
+
+
+## Results of experiments from 2019-09-12
+
+The following experiments were run with the following MCMC conditions:  
+  - iterations = 20K   
+  - burnin = 1000  
+  - thin = 1  
+  - nchains = 1  
+
+#### Results from experiment with Tmax = 460 
+
+```{r, echo = TRUE}
+
+samples <- readRDS("output/raw_mcmc_samples_test_2019-09-12.rds")
+samplesTmax <- samples
+
+
+## Getting just the model parameters
+paramcols <- which(attr(samples, "dimnames")[[2]] == "alpha" | attr(samples, "dimnames")[[2]] == "beta" | attr(samples, "dimnames")[[2]] == "epsilon")
+## Need to remove an additional burnin
+paramsTmax <- as.mcmc(samplesTmax[,paramcols])
+
+plot(paramsTmax)
+
+
+## Effective sample size
+round(cbind(
+  niterations = nrow(paramsTmax),
+  ESS    = effectiveSize(paramsTmax)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesTmax, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesTmax, 2, mean),
+  `median`  = apply(samplesTmax, 2, median),
+  `ciupper` = apply(samplesTmax, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
+
+
+
+```
+
+
+## Summary from experiment setting Tmax = 460
+
+Burn-in was not nearly long enough and led to lower mean estimates. The 95% CI are very large. Need to run it with more iterations.
+
+
+#### Re-run experiment with 40K iterations and all other conditions the same
+
+```{r}
+
+
+
+
+```
+

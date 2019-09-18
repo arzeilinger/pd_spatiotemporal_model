@@ -46,11 +46,19 @@ chainsPlot(paramList, nrows = 2, buffer.right = 1)
 
 
 ## Summary of posterior distributions
-res <- round(cbind(
+res <- as.data.frame(round(cbind(
   `cilower` = apply(samples1, 2, function(x) quantile(x, 0.025)),
   `mean`    = apply(samples1, 2, mean),
   `median`  = apply(samples1, 2, median),
   `ciupper` = apply(samples1, 2, function(x) quantile(x, 0.975))
-), 8)
+), 8))
 
 tail(res)
+
+
+#### Looking at infection times
+InfTimesInd <- grep("Inf_times", attr(samples1, "dimnames")[[2]])
+meanInfTimes <- res[grep("Inf_times", row.names(res)), "mean"]
+hist(meanInfTimes, breaks = seq(0,360,by=30))
+## Mean epidemic size at 340
+(size340 <- sum(meanInfTimes <= 340))
