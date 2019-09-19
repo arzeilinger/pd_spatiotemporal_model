@@ -60,8 +60,8 @@ dDiseaseSpread <- nimbleFunction(
     ## Need only those plants that were infected by t[obs] and need to sort them by infection time
     ## Need function to sort Inf_times and Inf_indices within nimble
     ## We think that the Adrakey code missed epsilon for the first infected plant
-    P <- log(epsilon) ## log force of infection for first infected plant
-    #P <- 0
+    #P <- log(epsilon) ## log force of infection for first infected plant
+    P <- 0
     for(iTargetPlant in 2:numInfections) {
       m <- 0
       for(iSourcePlant in 1:(iTargetPlant-1)) {
@@ -245,14 +245,9 @@ floor((niter-nburnin)/thin)
 
 system.time(samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
                                nchains = nchains, setSeed = seed, samplesAsCodaMCMC = TRUE))
-samples2 <- samples
 saveRDS(samples, file = "output/raw_mcmc_samples_test_2_2019-09-12.rds")
 
 ## 100000 iterations took 9.6 hours
-saveRDS(samples, "output/raw_mcmc_samples.rds")
-
-oldSamples <- readRDS("output/raw_mcmc_samples.rds")
-samples <- oldSamples[[1]]
 
 ## Summary of posterior distributions
 res <- round(cbind(

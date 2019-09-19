@@ -315,47 +315,48 @@ tail(res)
 ```
 
 
-## Summary
+#### Summary
 
 In summary, the results of the multi-configuration experiments were equivalent to the first set of experiments. The Effective Sample Size and posterior distributions were unaffected after initializing the sampling of infection times with the first MCMC run.
+
+
 
 
 ## Results of experiments from 2019-09-12
 
 The following experiments were run with the following MCMC conditions:  
-  - iterations = 20K   
+  - iterations = 40K   
   - burnin = 1000  
   - thin = 1  
   - nchains = 1  
+  - RNG seed = 1
 
 #### Results from experiment with Tmax = 460 
 
-```{r, echo = TRUE}
+```{r, echo = TRUE, fig.height = 12, fig.width = 12}
 
-samples <- readRDS("output/raw_mcmc_samples_test_2019-09-12.rds")
-samplesTmax <- samples
-
+samplesTest <- readRDS("output/raw_mcmc_samples_test_2019-09-12.rds")
 
 ## Getting just the model parameters
-paramcols <- which(attr(samples, "dimnames")[[2]] == "alpha" | attr(samples, "dimnames")[[2]] == "beta" | attr(samples, "dimnames")[[2]] == "epsilon")
+paramcols <- which(attr(samplesTest, "dimnames")[[2]] == "alpha" | attr(samplesTest, "dimnames")[[2]] == "beta" | attr(samplesTest, "dimnames")[[2]] == "epsilon")
 ## Need to remove an additional burnin
-paramsTmax <- as.mcmc(samplesTmax[,paramcols])
+paramsTest <- as.mcmc(samplesTest[,paramcols])
 
-plot(paramsTmax)
+plot(paramsTest)
 
 
 ## Effective sample size
 round(cbind(
-  niterations = nrow(paramsTmax),
-  ESS    = effectiveSize(paramsTmax)
+  niterations = nrow(paramsTest),
+  ESS    = effectiveSize(paramsTest)
 ))
 
 ## Summary of posterior distributions
 res <- round(cbind(
-  `cilower` = apply(samplesTmax, 2, function(x) quantile(x, 0.025)),
-  `mean`    = apply(samplesTmax, 2, mean),
-  `median`  = apply(samplesTmax, 2, median),
-  `ciupper` = apply(samplesTmax, 2, function(x) quantile(x, 0.975))
+  `cilower` = apply(samplesTest, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesTest, 2, mean),
+  `median`  = apply(samplesTest, 2, median),
+  `ciupper` = apply(samplesTest, 2, function(x) quantile(x, 0.975))
 ), 8)
 
 tail(res)
@@ -365,17 +366,48 @@ tail(res)
 ```
 
 
-## Summary from experiment setting Tmax = 460
+#### Summary
 
-Burn-in was not nearly long enough and led to lower mean estimates. The 95% CI are very large. Need to run it with more iterations.
+Burn-in was not nearly long enough, as can be seen by the trace plots and large 95% CI. Estimates of alpha and beta are still very large but epsilon is now underestimated.
 
 
-#### Re-run experiment with 40K iterations and all other conditions the same
 
-```{r}
 
+#### Results from initializing P = 0 in dDiseaseSpread() and setting Tmax = 460
+
+
+```{r, echo = TRUE, fig.height = 12, fig.width = 12}
+
+samplesTest2 <- readRDS("output/raw_mcmc_samples_test_2_2019-09-12.rds")
+
+## Getting just the model parameters
+paramcols <- which(attr(samplesTest2, "dimnames")[[2]] == "alpha" | attr(samplesTest2, "dimnames")[[2]] == "beta" | attr(samplesTest2, "dimnames")[[2]] == "epsilon")
+paramsTest2 <- as.mcmc(samplesTest2[,paramcols])
+
+plot(paramsTest2)
+
+
+## Effective sample size
+round(cbind(
+  niterations = nrow(paramsTest2),
+  ESS    = effectiveSize(paramsTest2)
+))
+
+## Summary of posterior distributions
+res <- round(cbind(
+  `cilower` = apply(samplesTest2, 2, function(x) quantile(x, 0.025)),
+  `mean`    = apply(samplesTest2, 2, mean),
+  `median`  = apply(samplesTest2, 2, median),
+  `ciupper` = apply(samplesTest2, 2, function(x) quantile(x, 0.975))
+), 8)
+
+tail(res)
 
 
 
 ```
 
+
+#### Summary
+
+Making the (apparently) small change of setting P <- 0 instead of P <- log(epsilon) changed the mixing of the MCMC quite a bit based on the trace and density plots. The parameter estimates are roughly similar from the 1st and 2nd tests: estimates of alpha and beta are much larger than the true values (by several orders of magnitude), whereas epsilon is underestimated (by less than one order of magnitude).
