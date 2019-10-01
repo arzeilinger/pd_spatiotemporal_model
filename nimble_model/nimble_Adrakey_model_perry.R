@@ -60,8 +60,8 @@ dDiseaseSpread <- nimbleFunction(
     ## Need only those plants that were infected by t[obs] and need to sort them by infection time
     ## Need function to sort Inf_times and Inf_indices within nimble
     ## We think that the Adrakey code missed epsilon for the first infected plant
-    #P <- log(epsilon) ## log force of infection for first infected plant
-    P <- 0
+    P <- log(epsilon) ## log force of infection for first infected plant
+    #P <- 0
     for(iTargetPlant in 2:numInfections) {
       m <- 0
       for(iSourcePlant in 1:(iTargetPlant-1)) {
@@ -200,6 +200,10 @@ source("R_functions/sampler_infection_quiet.R")
 ## version of buildMCMC for debugging
 source("nimble_model/buildMCMC_debug.R")
 
+## Set parameters to "true values" from Adrakey et al. Suppl Mat
+Cmodel$alpha <- 0.08
+Cmodel$beta <- 7e-06
+Cmodel$epsilon <- 5e-05
 
 MCMCconf <- configureMCMC(Rmodel, nodes = c("alpha", "beta", "epsilon"))
 MCMCconf$addSampler(type = 'sampler_infection_quiet', 
@@ -213,6 +217,7 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
+MCMCconf$removeSamplers(c("alpha", "beta"))
 #MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
@@ -236,16 +241,16 @@ MCMC$run(niter = 100)
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-niter <- 40000
+niter <- 10000
 nburnin <- 1000
-thin <- 1
+thin <- 2
 nchains <- 1
 ## Check returned no. of samples
 floor((niter-nburnin)/thin)
 
 system.time(samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
                                nchains = nchains, setSeed = seed, samplesAsCodaMCMC = TRUE))
-saveRDS(samples, file = "output/raw_mcmc_samples_test_2_2019-09-12.rds")
+saveRDS(samples, file = "output/raw_mcmc_samples_epsilon_test_2019-09-23.rds")
 
 ## 100000 iterations took 9.6 hours
 
@@ -267,9 +272,9 @@ source("R_functions/plotting_functions.R")
 paramcols <- which(attr(samples, "dimnames")[[2]] == "alpha" | attr(samples, "dimnames")[[2]] == "beta" | attr(samples, "dimnames")[[2]] == "epsilon")
 params <- samples[,paramcols]
 
-pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
+#pdf("output/trace_density_plots_parameters_Adrakey_simulation.pdf")
   plot(as.mcmc(params))
-dev.off()
+#dev.off()
 
 samplesPlot(samples, c('epsilon'), width = 4, height = 2, traceplot = TRUE, densityplot = FALSE)
 

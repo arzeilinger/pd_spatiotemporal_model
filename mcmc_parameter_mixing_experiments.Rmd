@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Results from examining mixing and estimation problems with Adrakey model parameters
 
-Below are the results for three "experiments". First, I set each of the three parameters (alpha, beta, and epsilon) equal to the "true value", where the true value is the one used by Adrakey et al. to run their simulation in the Suppl. Material. Then I removed monitors on two of the three parameters.
+Below are the results for three "experiments". First, I set each of the three parameters (alpha, beta, and epsilon) equal to the "true value", where the true value is the one used by Adrakey et al. to run their simulation in the Suppl. Material. Then I removed samplers on two of the three parameters.
 
 The true values of the parameters are:  
   - alpha = 0.08  
@@ -36,7 +36,7 @@ lapply(my.packages, require, character.only = TRUE)
 
 
 
-## Results of experiment monitoring alpha
+## Results of experiment sampling alpha
 
 ```{r, echo=TRUE}
 
@@ -76,7 +76,7 @@ tail(res)
 
 
 
-## Results of experiments monitoring beta
+## Results of experiments sampling beta
 
 ```{r, echo = TRUE}
 
@@ -123,7 +123,7 @@ tail(res)
 
 
 
-## Results of experiments monitoring epsilon
+## Results of experiments sampling epsilon
 
 ```{r, echo = TRUE}
 
