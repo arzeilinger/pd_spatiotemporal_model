@@ -1,6 +1,7 @@
 #### Function to simulate infection dynamics given values of alpha, beta, epsilon, Tmax, and Coo
 
 simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon, Tmax = Tmax, Coo = Coo){
+  require(GillespieSSA)
   #### Setting up Inf_times and Inf_indices
   ## Assumes already created a grid of hosts
   ## Calculate total number of plants and vector of plant IDs
@@ -21,10 +22,12 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
     Infected_ind <- which(Inf_times < Tmax)
     Infected_times <- Inf_times[Infected_ind]
     Susceptible_ind <- which(Inf_times == Tmax)
-    Susceptible_times <- Inf_times[Susceptible_ind]
+    #Susceptible_times <- Inf_times[Susceptible_ind]
     ## Summaries of infections and susceptibles
     numInfections <- length(Infected_times)
-    numSusceptibles <- length(Susceptible_times)
+    numSusceptibles <- length(Susceptible_ind)
+    ## lambda calculated only for susceptible plants
+    lambda <- rep(0, numSusceptibles)
     ## Loop over susceptible plants
     for(iiSusceptible in Susceptible_ind){
       infTimeSusceptible <- Inf_times[iiSusceptible]
@@ -44,18 +47,57 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
         }
       }
       ## Force of infection for iiSusceptible plant
-      lambdaii <- beta*m + epsilon
-      ## From Adrakey paper:
-      ## P(ii infected in [t, t+dt]) = lambdaii*dt + o(dt)
-      ## Where dt = period between discrete time points t and t+1
-      ## Assuming that infection status of iiSusceptible is a Bernoulli trial with prob = lambdaii
-      ## lambdaii only stays bounded by [0,1] if normalizedKernel is used
-      infectionStatusii <- rbinom(1, 1, lambdaii) 
-      ## If iiSusceptible plant is infected, generate a random infection time between t and t+1 time points
-      if(infectionStatusii == 1) {
-        Inf_times[iiSusceptible] <- runif(1, t, t+1)
+      lambda[which(Susceptible_ind == iiSusceptible)] <- beta*m + epsilon
+      # ## From Adrakey paper:
+      # ## P(ii infected in [t, t+dt]) = lambdaii*dt + o(dt)
+      # ## Where dt = period between discrete time points t and t+1
+      # ## Assuming that infection status of iiSusceptible is a Bernoulli trial with prob = lambdaii
+      # ## lambdaii only stays bounded by [0,1] if normalizedKernel is used
+      # infectionStatusii <- rbinom(1, 1, lambdaii) 
+      # ## If iiSusceptible plant is infected, generate a random infection time between t and t+1 time points
+      # if(infectionStatusii == 1) {
+      #   Inf_times[iiSusceptible] <- runif(1, t, t+1)
+      # }
+    }
+    ## Implementing Gillespie SSA within simulation
+    params <- lambda
+    names(params) <- paste("lambda", 1:numSusceptibles, sep = "")
+    a <- names(params)
+    x0 <- rep(c(1,0), numSusceptibles)
+    names(x0) <- c(paste(c("S", "I"), floor(seq(1, (numSusceptibles+0.5), 0.5)), sep = ""))
+    nu <- matrix(0, nrow = length(x0), ncol = length(lambda))
+    for(i in 1:ncol(nu)){
+      Sind <- paste("S", i, sep = "")
+      Iind <- paste("I", i, sep = "")
+      nu[which(names(x0) == Sind), i] <- -1
+      nu[which(names(x0) == Iind), i] <- 1
+    }
+    ssaOut <- ssa(x0 = x0,
+                  a = a,
+                  nu = nu,
+                  parms = params,
+                  tf = 1,
+                  method = ssa.d())
+    ## Need to figure out how to specify the time steps
+    ssaData <- ssaOut$data
+    ssaData[,1:30]
+    ssaTimes <- as.numeric(ssaData[,1])
+    goodTimes <- ssaTimes[which(ssaTimes <= 1)] + (t - 1)
+    ssaData <- ssaData[which(ssaTimes < 1),]
+    if(any(ssaTimes > 0 & ssaTimes <=1)){
+      Icols <- ssaData[,grep("I", attr(ssaData, "dimnames")[[2]])]
+      for(i in 1:ncol(Icols)){
+        iName <- attr(Icols, "dimnames")[[2]][i]
+        iInd <- as.numeric(gsub("[^0-9]", "", iName))
+        isum <- sum(Icols[,i])
+        if(isum > 0){
+          Inf_times[iInd] <- goodTimes[min(which(Icols[,i] == 1))]
+        }
       }
     }
+    (infectedNames <- attr(Icols, "dimnames")[[2]][which(colSums(Icols) >= 1)]) 
+    # infectedInd <- as.numeric(gsub("[^0-9]", "", infectedNames))
+    # Inf_times_ssa <- 
   }
   return(list(Inf_times = Inf_times, 
               Inf_indices = Inf_indices))

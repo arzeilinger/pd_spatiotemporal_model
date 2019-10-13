@@ -24,7 +24,7 @@ epsilon <- 0.01
 Tmax <- 100
 ## Number of rows and columns -- will always make the plant population a square
 ## Deviating from a square causes a problem with making time slice rasters -- not sure why
-nrc <- 20
+nrc <- 100
 grid <- 1:nrc
 Coo <- matrix(c(rep(grid, nrc), rep(grid, each = nrc)), ncol = 2)
 
