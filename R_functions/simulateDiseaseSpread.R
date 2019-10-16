@@ -1,7 +1,7 @@
 #### Function to simulate infection dynamics given values of alpha, beta, epsilon, Tmax, and Coo
 
 simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon, Tmax = Tmax, Coo = Coo){
-  require(GillespieSSA)
+  #require(GillespieSSA)
   source("R_functions/dispersal_kernel_functions.R")
   #### Setting up Inf_times and Inf_indices
   ## Assumes already created a grid of hosts
@@ -12,18 +12,20 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
   Inf_times <- rep(Tmax, numPlants)
   ## Initialize Inf_indices
   Inf_indices <- IDs[order(Inf_times)]
+  ## Vector of lambda values for each plant
+  lambda <- rep(0, numPlants)
+  ## Vector of Sellke thresholds
+  Q <- rexp(numPlants, rate = 1)
   ## Nested for loops of t, Susceptible plants, and Infected plants
   for(t in 1:Tmax){
     ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
     Infected_ind <- which(Inf_times < Tmax)
-    Infected_times <- Inf_times[Infected_ind]
+    #Infected_times <- Inf_times[Infected_ind]
     Susceptible_ind <- which(Inf_times == Tmax)
     #Susceptible_times <- Inf_times[Susceptible_ind]
     ## Summaries of infections and susceptibles
-    numInfections <- length(Infected_times)
+    numInfections <- length(Infected_ind)
     numSusceptibles <- length(Susceptible_ind)
-    ## lambda calculated only for susceptible plants
-    lambda <- rep(0, numSusceptibles)
     ## Loop over susceptible plants
     for(iiSusceptible in Susceptible_ind){
       infTimeSusceptible <- Inf_times[iiSusceptible]
@@ -42,61 +44,65 @@ simulateDiseaseSpread <- function(alpha = alpha, beta = beta, epsilon = epsilon,
           m <- m + normalizedKernel(distance = d, alpha = alpha)
         }
       } # End iInfected loop
-      ## Force of infection for iiSusceptible plant
-      lambda[which(Susceptible_ind == iiSusceptible)] <- beta*m + epsilon
+      ## Cumulative force of infection for iiSusceptible plant
+      lambda[iiSusceptible] <- lambda[iiSusceptible] + beta*m + epsilon
+      ## If cumulative lambda (i.e., disease preassure) exceeds Q (i.e., Sellke threshold) plant becomes infected and receives an infection time in range [t - 1, t]
+      if(lambda[iiSusceptible] >= Q[iiSusceptible]){
+        Inf_times[iiSusceptible] <- runif(1, min = t-1, max = t)
+      }
     } # End iiSusceptible loop
     ############################################################################################################
     #### Implementing Gillespie SSA within simulation
     ## Define params, a, and x0 objects for ssa()
     ## Using Inf_indices (precisely, Susceptible_ind) to keep track of the plants
-    params <- lambda
-    names(params) <- paste("lambda", Susceptible_ind, sep = "")
-    a <- names(params)
-    x0 <- rep(c(1,0), numSusceptibles)
-    names(x0) <- c(paste(c("S", "I"), rep(Susceptible_ind, each = 2), sep = ""))
-    ## Define transition matrix, nu
-    ## nrow = number of states (S and I for each plant)
-    ## ncol = number of rates (lambda for each plant)
-    nu <- matrix(0, nrow = length(x0), ncol = length(lambda))
-    for(i in 1:ncol(nu)){
-      Sind <- paste("S", i, sep = "")
-      Iind <- paste("I", i, sep = "")
-      nu[which(names(x0) == Sind), i] <- -1
-      nu[which(names(x0) == Iind), i] <- 1
-    }
-    ## Run ssa() function with direct method
-    ssaOut <- ssa(x0 = x0,
-                  a = a,
-                  nu = nu,
-                  parms = params,
-                  tf = 1,
-                  method = ssa.d())
-    #### Extract infection states and infection times from output of ssa()
-    ## TO DO: Figure out why time steps exceed tf (final time) and how to eliminate these excess time steps
-    ssaData <- ssaOut$data
-    #print(ssaData[,1:9]) # Check data set, for debugging
-    ssaTimes <- as.numeric(ssaData[,1]) # Extract time steps
-    goodTimes <- ssaTimes[which(ssaTimes <= 1)] # Filter out time steps that exceed tf = 1
-    ssaData <- ssaData[which(ssaTimes <= 1),]
-    ## if() statement to catch situations where no infections (i.e., transitions) at t < tf occurred
-    if(any(ssaTimes > 0 & ssaTimes <= 1)){
-      ## Only the infected state columns
-      Icols <- ssaData[,grep("I", attr(ssaData, "dimnames")[[2]])]
-      ## For loop to update Inf_times
-      for(i in 1:ncol(Icols)){
-        iName <- attr(Icols, "dimnames")[[2]][i]
-        iInd <- as.numeric(gsub("[^0-9]", "", iName))
-        isum <- sum(Icols[,i])
-        if(isum > 0){
-          Inf_times[iInd] <- goodTimes[min(which(Icols[,i] == 1))] + (t - 1)
-        } # End 2nd if() statement
-      } # End i loop
-    } # End 1st if() statement within Gillespie SSA code
-    ## Sort infection indices according to updated infection times
-    Inf_indices <- IDs[order(Inf_times)]
-    ## To look at which plants became infected, for debugging purposes
-    #infectedNames <- attr(Icols, "dimnames")[[2]][which(colSums(Icols) >= 1)]
-    #print(infectedNames)
+    # params <- lambda
+    # names(params) <- paste("lambda", Susceptible_ind, sep = "")
+    # a <- names(params)
+    # x0 <- rep(c(1,0), numSusceptibles)
+    # names(x0) <- c(paste(c("S", "I"), rep(Susceptible_ind, each = 2), sep = ""))
+    # ## Define transition matrix, nu
+    # ## nrow = number of states (S and I for each plant)
+    # ## ncol = number of rates (lambda for each plant)
+    # nu <- matrix(0, nrow = length(x0), ncol = length(lambda))
+    # for(i in 1:ncol(nu)){
+    #   Sind <- paste("S", i, sep = "")
+    #   Iind <- paste("I", i, sep = "")
+    #   nu[which(names(x0) == Sind), i] <- -1
+    #   nu[which(names(x0) == Iind), i] <- 1
+    # }
+    # ## Run ssa() function with direct method
+    # ssaOut <- ssa(x0 = x0,
+    #               a = a,
+    #               nu = nu,
+    #               parms = params,
+    #               tf = 1,
+    #               method = ssa.d())
+    # #### Extract infection states and infection times from output of ssa()
+    # ## TO DO: Figure out why time steps exceed tf (final time) and how to eliminate these excess time steps
+    # ssaData <- ssaOut$data
+    # #print(ssaData[,1:9]) # Check data set, for debugging
+    # ssaTimes <- as.numeric(ssaData[,1]) # Extract time steps
+    # goodTimes <- ssaTimes[which(ssaTimes <= 1)] # Filter out time steps that exceed tf = 1
+    # ssaData <- ssaData[which(ssaTimes <= 1),]
+    # ## if() statement to catch situations where no infections (i.e., transitions) at t < tf occurred
+    # if(any(ssaTimes > 0 & ssaTimes <= 1)){
+    #   ## Only the infected state columns
+    #   Icols <- ssaData[,grep("I", attr(ssaData, "dimnames")[[2]])]
+    #   ## For loop to update Inf_times
+    #   for(i in 1:ncol(Icols)){
+    #     iName <- attr(Icols, "dimnames")[[2]][i]
+    #     iInd <- as.numeric(gsub("[^0-9]", "", iName))
+    #     isum <- sum(Icols[,i])
+    #     if(isum > 0){
+    #       Inf_times[iInd] <- goodTimes[min(which(Icols[,i] == 1))] + (t - 1)
+    #     } # End 2nd if() statement
+    #   } # End i loop
+    # } # End 1st if() statement within Gillespie SSA code
+    # ## Sort infection indices according to updated infection times
+    # Inf_indices <- IDs[order(Inf_times)]
+    # ## To look at which plants became infected, for debugging purposes
+    # #infectedNames <- attr(Icols, "dimnames")[[2]][which(colSums(Icols) >= 1)]
+    # #print(infectedNames)
   } # End t loop
   return(list(Inf_times = Inf_times, 
               Inf_indices = Inf_indices))
