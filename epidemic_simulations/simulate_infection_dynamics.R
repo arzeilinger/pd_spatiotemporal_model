@@ -4,27 +4,26 @@
 
 rm(list = ls())
 
-my.packages <- c("ggplot2", "dplyr", "tidyr", "raster")
+my.packages <- c("ggplot2", "dplyr", "tidyr", "raster", "animation")
 lapply(my.packages, require, character.only = TRUE)
 
 #### Load simulation function and dispersal kernel functions
 source("R_functions/simulateDiseaseSpread.R")
-source("R_functions/dispersal_kernel_functions.R")
 source("R_functions/getTimeIntervals.R")
 
 #### Simulation for visualization
 #### Initial values setup
 
 # ## Parameter values
-alpha <- 0.08
+alpha <- 0.8
 beta <- 0.5
-epsilon <- 0.01
+epsilon <- 0.001
 
 ## Other values
-Tmax <- 100
+Tmax <- 200
 ## Number of rows and columns -- will always make the plant population a square
 ## Deviating from a square causes a problem with making time slice rasters -- not sure why
-nrc <- 100
+nrc <- 20
 grid <- 1:nrc
 Coo <- matrix(c(rep(grid, nrc), rep(grid, each = nrc)), ncol = 2)
 
@@ -32,11 +31,14 @@ Coo <- matrix(c(rep(grid, nrc), rep(grid, each = nrc)), ncol = 2)
 #### Run simulateDiseaseSpread
 testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 (Inf_times <- testSpread$Inf_times)
+Inf_indices <- testSpread$Inf_indices
 
+saveRDS(testSpread, "output/test_stochastic_simulation_infection_dynamics.rds")
 
-#### Get time intervals
+#### Produce "snapshots" of disease observations
 ## tcuts (observation times) should probably not include Tmax (i.e., the last observation should be < Tmax)
-tslices <- seq(10, 90, by = 10)
+## tcuts needs to start with 0
+tslices <- seq(0, 90, by = 10)
 time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices)
 cbind(time_intervals, Inf_times)
 
@@ -62,7 +64,7 @@ saveRDS(simulationResults, "output/simulation_results_list.rds")
 ## Produce maps of infection status based on different time points t
 
 ## Vector of time points to plot
-tcuts <- floor(seq(5,100,length.out=9))
+tcuts <- floor(seq(1,Tmax, by = 5))
 
 
 #### Produce raster stack of infection status at a series of time points
@@ -99,6 +101,15 @@ pdf("output/simulated_disease_spread_raster_stack.pdf")
 dev.off()
 
 
+#### Make a GIF of the raster stack
+giftitle <- rep("Vineyard disease spread", dim(diseaseRasterStack)[3])
+raster::animate(diseaseRasterStack, legend = FALSE, main = giftitle, n = 5)
+
+saveGIF(raster::animate(diseaseRasterStack, legend = FALSE, main = giftitle, n = 5), 
+        movie.name = "disease_spread_stochastic_test_external_spread.gif")
+## Check if it worked correctly
+ani.options("convert")
+## If it worked correctly, this should return NULL
 
 
 ####################################################################################################
