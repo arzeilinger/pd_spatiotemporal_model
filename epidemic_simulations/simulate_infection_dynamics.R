@@ -9,14 +9,14 @@ lapply(my.packages, require, character.only = TRUE)
 
 #### Load simulation function and dispersal kernel functions
 source("R_functions/simulateDiseaseSpread.R")
-#source("R_functions/getTimeIntervals.R")
+source("R_functions/getTimeIntervals.R")
 
 #### Simulation for visualization
 #### Initial values setup
 
 #### Parameter values
-alpha <- 0.08 # Dispersal parameter
-beta <- 0.1 # Contact rate or secondary spread rate
+alpha <- 0.8 # Dispersal parameter
+beta <- 0.3 # Contact rate or secondary spread rate
 epsilon <- 0.001 # Primary spread rate
 
 ## Number of time steps
@@ -95,8 +95,8 @@ ani.options("convert")
 #### Produce "snapshots" of disease observations
 ## tcuts (observation times) should probably not include Tmax (i.e., the last observation should be < Tmax)
 ## tcuts needs to start with 0
-tslices <- seq(0, 90, by = 10)
-time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices)
+tslices <- seq(0, Tmax, by = 10)
+time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices) ## Doesn't work for some reason, maybe related to running (and stopping) the GIF beforehand?
 cbind(time_intervals, Inf_times)
 
 #### Compile all the simulation components
@@ -109,8 +109,8 @@ simulationResults <- list(Tmax = Tmax,
                           numPlants = nrow(Coo),
                           numInfections = sum(Inf_times < Tmax),
                           Inf_times = Inf_times,
-                          Inf_indices = Inf_indices,
-                          time_intervals = time_intervals)
+                          Inf_indices = Inf_indices)
+                          #time_intervals = time_intervals)
 saveRDS(simulationResults, "output/simulation_results_list.rds")
 
 
