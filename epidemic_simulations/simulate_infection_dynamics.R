@@ -9,19 +9,21 @@ lapply(my.packages, require, character.only = TRUE)
 
 #### Load simulation function and dispersal kernel functions
 source("R_functions/simulateDiseaseSpread.R")
-source("R_functions/getTimeIntervals.R")
+#source("R_functions/getTimeIntervals.R")
 
 #### Simulation for visualization
 #### Initial values setup
 
-# ## Parameter values
-alpha <- 0.8
-beta <- 0.5
-epsilon <- 0.001
+#### Parameter values
+alpha <- 0.08 # Dispersal parameter
+beta <- 0.1 # Contact rate or secondary spread rate
+epsilon <- 0.001 # Primary spread rate
 
-## Other values
+## Number of time steps
 Tmax <- 200
-## Number of rows and columns -- will always make the plant population a square
+
+#### Plant spatial coordinates
+## Number of rows and columns are the same -- will always make the plant population a square
 ## Deviating from a square causes a problem with making time slice rasters -- not sure why
 nrc <- 20
 grid <- 1:nrc
@@ -33,30 +35,7 @@ testSpread <- simulateDiseaseSpread(alpha, beta, epsilon, Tmax, Coo)
 (Inf_times <- testSpread$Inf_times)
 Inf_indices <- testSpread$Inf_indices
 
-saveRDS(testSpread, "output/test_stochastic_simulation_infection_dynamics.rds")
-
-#### Produce "snapshots" of disease observations
-## tcuts (observation times) should probably not include Tmax (i.e., the last observation should be < Tmax)
-## tcuts needs to start with 0
-tslices <- seq(0, 90, by = 10)
-time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices)
-cbind(time_intervals, Inf_times)
-
-#### Compile all the simulation components
-simulationResults <- list(Tmax = Tmax,
-                          alpha = alpha,
-                          beta = beta,
-                          epsilon = epsilon,
-                          latent_period = 3,
-                          Coo = Coo,
-                          numPlants = nrow(Coo),
-                          numInfections = sum(Inf_times < Tmax),
-                          Inf_times = Inf_times,
-                          Inf_indices = Inf_indices,
-                          time_intervals = time_intervals)
-saveRDS(simulationResults, "output/simulation_results_list.rds")
-
-
+#saveRDS(testSpread, "output/test_stochastic_simulation_infection_dynamics.rds")
 
 
 ###################################################################################################################
@@ -96,24 +75,49 @@ diseaseRasterStack <- stack(diseaseRasterList)
 plot(diseaseRasterStack)
 
 
-pdf("output/simulated_disease_spread_raster_stack.pdf")
-  plot(diseaseRasterStack)
-dev.off()
+# pdf("output/simulated_disease_spread_raster_stack.pdf")
+#   plot(diseaseRasterStack)
+# dev.off()
 
 
 #### Make a GIF of the raster stack
-giftitle <- rep("Vineyard disease spread", dim(diseaseRasterStack)[3])
+giftitle <- rep("Vineyard disease spread: \ngrey = healthy, green = infected", dim(diseaseRasterStack)[3])
 raster::animate(diseaseRasterStack, legend = FALSE, main = giftitle, n = 5)
 
 saveGIF(raster::animate(diseaseRasterStack, legend = FALSE, main = giftitle, n = 5), 
-        movie.name = "disease_spread_stochastic_test_external_spread.gif")
+        movie.name = "disease_spread_stochastic_test.gif")
 ## Check if it worked correctly
 ani.options("convert")
 ## If it worked correctly, this should return NULL
 
 
+##########################################################################################################
+#### Produce "snapshots" of disease observations
+## tcuts (observation times) should probably not include Tmax (i.e., the last observation should be < Tmax)
+## tcuts needs to start with 0
+tslices <- seq(0, 90, by = 10)
+time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tslices)
+cbind(time_intervals, Inf_times)
+
+#### Compile all the simulation components
+simulationResults <- list(Tmax = Tmax,
+                          alpha = alpha,
+                          beta = beta,
+                          epsilon = epsilon,
+                          latent_period = 3,
+                          Coo = Coo,
+                          numPlants = nrow(Coo),
+                          numInfections = sum(Inf_times < Tmax),
+                          Inf_times = Inf_times,
+                          Inf_indices = Inf_indices,
+                          time_intervals = time_intervals)
+saveRDS(simulationResults, "output/simulation_results_list.rds")
+
+
+
 ####################################################################################################
 #### Replicating simulation from Adrakey et al. 2017
+#### Warning: simulation takes about 1 hour on Berkeley computing cluster
 
 ## Parameter values used in simulations
 ## Units are included as comments
@@ -121,7 +125,7 @@ alphaAd <- 0.08 # km^2
 betaAd <- 7e-6 # day^-1 km^2
 epsilonAd <- 5e-5 # day^-1
 
-TmaxAd <- 460
+TmaxAd <- 360
 
 ## Simulated host population
 ## N = 1000 plants, uniformly distributed over 0.75 x 0.75 km^2
@@ -147,10 +151,11 @@ Inf_indices <- spreadAd$Inf_indices
 #### Make time intervals from my simulations
 tcuts <- seq(0, 360, by = 30)
 
-time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tcuts)
+time_intervals <- getTimeIntervals(Inf_times = Inf_times, tcuts = tcuts, Tmax = TmaxAd)
 
 checktime_interval <- cbind(time_intervals, Inf_times)
-checktime_interval[checktime_interval[,3] < 460,]
+checktime_interval[checktime_interval[,3] < 360,]
+checktime_interval
 
 #### Save simulation initial parameters and outputs
 simulationResults <- list(Tmax = TmaxAd,
@@ -158,10 +163,12 @@ simulationResults <- list(Tmax = TmaxAd,
                           beta = betaAd,
                           epsilon = epsilonAd,
                           Coo = adcoo,
+                          numPlants = nrow(adcoo),
+                          numInfections = sum(Inf_times < TmaxAd),
                           Inf_times = Inf_times,
                           Inf_indices = Inf_indices,
                           time_intervals = time_intervals)
-saveRDS(simulationResults, "output/simulation_results_list.rds")
+saveRDS(simulationResults, "output/simulation_results_list_Adrakey_setup.rds")
 
 
 ######################################################################################################
@@ -170,8 +177,8 @@ adInf_tim <- read.table("Adrakey2017_code/Inf_tim.txt")
 str(adInf_tim)
 
 ## Adrakey's Inf_times
-infectedsAd <- adInf_tim$V1[adInf_tim$V1 < 460]
-infectionStatusAd <- ifelse(adInf_tim$V1 < 460, 1, 0)
+infectedsAd <- adInf_tim$V1[adInf_tim$V1 < 360]
+infectionStatusAd <- ifelse(adInf_tim$V1 < 360, 1, 0)
 ## Symptomatic plants
 length(infectedsAd)
 hist(infectedsAd)
@@ -216,8 +223,8 @@ simulateAd_t130
 ggsave("output/simulation_adrakey_setup_figure_t130.jpg", plot = simulateAd_t130,
        width = 7, height = 7, units = "in")
 
-## Infections at t = 460
-timeslice <- 460
+## Infections at t = 360
+timeslice <- 360
 simulateAd_final <- ggplot(data = infData, aes(x=xcoo, y=ycoo)) +
   geom_point(colour = "grey", size = 3) +
   geom_point(data = infData[infData$Inf_times <= timeslice-100,], colour = "red", size = 3) +

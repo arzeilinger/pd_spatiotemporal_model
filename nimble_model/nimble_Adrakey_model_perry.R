@@ -127,7 +127,7 @@ str(adtime_interval)
 
 Coo <- as.matrix(adcoo)
 Inf_indices <- as.numeric(adIndx_ind[,1])
-Tmax <- 460
+Tmax <- 360
 ## Correct Tmax entries in Inf_times, now that Tmax == 460 (or Adrakey's t[obs])
 Inf_times <- adInf_tim[,1]
 Inf_times[Inf_times > Tmax] <- Tmax
@@ -143,12 +143,13 @@ for(i in 1:nrow(Y)){
 tail(Y)
 
 #### Set up data set from simulated infection dynamics
-# simulationResults <- readRDS("output/simulation_results_list.rds")
-# str(simulationResults)
-# ## Make all elements of the saved list available to global environment
-# list2env(simulationResults, globalenv())
-# ## Change name of time_intervals
-# Y <- time_intervals
+simulationResults <- readRDS("output/simulation_results_list_Adrakey_setup.rds")
+str(simulationResults)
+## Make all elements of the saved list available to global environment
+list2env(simulationResults, globalenv())
+## Change name of time_intervals
+Y <- time_intervals
+Coo <- as.matrix(Coo)
 
 
 ####################################################################################
@@ -217,7 +218,7 @@ MCMCconf$addSampler(type = 'sampler_infection_quiet',
                       Tmax_node = 'Tmax'
                     ))
 MCMCconf$addMonitors('Inf_times')
-MCMCconf$removeSamplers(c("alpha", "beta"))
+#MCMCconf$removeSamplers(c("alpha", "beta"))
 #MCMC <- buildMCMC_debug(MCMCconf)
 MCMC <- buildMCMC(MCMCconf)
 MCMCconf$printSamplers()
@@ -241,7 +242,7 @@ MCMC$run(niter = 100)
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-niter <- 10000
+niter <- 50000
 nburnin <- 1000
 thin <- 2
 nchains <- 1
@@ -250,7 +251,7 @@ floor((niter-nburnin)/thin)
 
 system.time(samples <- runMCMC(Cmcmc, niter = niter, nburnin = nburnin, thin = thin, 
                                nchains = nchains, setSeed = seed, samplesAsCodaMCMC = TRUE))
-saveRDS(samples, file = "output/raw_mcmc_samples_epsilon_test_2019-09-23.rds")
+saveRDS(samples, file = "output/raw_mcmc_samples_my_simulated_data_2019-10-17.rds")
 
 ## 100000 iterations took 9.6 hours
 
