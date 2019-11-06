@@ -201,7 +201,7 @@ source("R_functions/sampler_infection_quiet.R")
 ## version of buildMCMC for debugging
 source("nimble_model/buildMCMC_debug.R")
 
-## Set parameters to "true values" from Adrakey et al. Suppl Mat
+## Set initial parameter values to "true values" from Adrakey et al. Suppl Mat
 Cmodel$alpha <- 0.08
 Cmodel$beta <- 7e-06
 Cmodel$epsilon <- 5e-05
@@ -229,22 +229,22 @@ seed <- 1
 
 ## Compile MCMC for running in C++
 Cmcmc <- compileNimble(MCMC, project = Rmodel, resetFunctions = TRUE)
-
-## Run compiled MCMC
-set.seed(seed)
-Cmcmc$run(niter = 100, reset = TRUE)
-
-
-## Run uncompiled MCMC
-set.seed(seed)
-MCMC$run(niter = 100)
+ 
+# ## Run compiled MCMC
+# set.seed(seed)
+# Cmcmc$run(niter = 100, reset = TRUE)
+# 
+# 
+# ## Run uncompiled MCMC
+# set.seed(seed)
+# MCMC$run(niter = 100)
 
 
 ####################################################################################################
 #### Large MCMC run on Adrakey simulated data
-niter <- 50000
+niter <- 20000
 nburnin <- 1000
-thin <- 2
+thin <- 1
 nchains <- 1
 ## Check returned no. of samples
 floor((niter-nburnin)/thin)
