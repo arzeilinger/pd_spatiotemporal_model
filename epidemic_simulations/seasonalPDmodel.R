@@ -17,7 +17,7 @@ alpha <- 10 # Dispersal parameter
 eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
 kappa_e <- 0.6 # Proportion of external vectors infectious
 a <- 0.6 # Acquisition rate
-omega <- 0.2 # In-field loss rate of vectors (due to both death and emigration)
+muv <- 0.2 # In-field loss rate of vectors (due to both death and emigration)
 
 ## Number of time steps
 ## Assume each time step is ~2 weeks
@@ -34,7 +34,7 @@ borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
 ## Add 1 to the distance; plants on the border are then 1 space from the border and all other plants are shifted accordingly
 ## Dispersal distances from border
 ## When d = 0, normalizedKernel = Inf
-m_epsilon <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
+epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
 qplot(borderD,m_epsilon,geom="path", xlab="distance", ylab="K(D,alpha)")
 
 
@@ -79,14 +79,14 @@ for(t in 1:Tmax){
     } # End iInfected loop
     ## Calculate time-dependent epsilon
     rho_et <- vectorDensity(A = -1.2, lambda_osc = 0.2, phi = 0.4, base = 0.05, time = t) # Seasonal vector density as damped sine wave
-    epsilon_t <- eta*kappa_e*rho_et*m_epsilon[iiSusceptible]
+    epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
     ## Calculate time-dependent beta
     Infecteds_tm1 <- sum(Inf_times < t) # Number of infected plants at t-1
     kappa_t <- a*Infecteds_tm1/numPlants # Time-dependent proportion vectors infectious
-    rho_tm1 <- (1-omega)*vectorDensity(A = -1.2, lambda_osc = 0.2, phi = 0.4, base = 0.05, time = t - 1)
+    rho_tm1 <- (1-muv)*vectorDensity(A = -1.2, lambda_osc = 0.2, phi = 0.4, base = 0.05, time = t - 1)
     beta_t <- eta*kappa_t*rho_tm1
     ## Cumulative force of infection for iiSusceptible plant
-    lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilon_t
+    lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
     ## If cumulative lambda (i.e., disease preassure) exceeds Q (i.e., Sellke threshold) plant becomes infected and receives an infection time in range [t - 1, t]
     if(lambda[iiSusceptible] >= Q[iiSusceptible]){
       Inf_times[iiSusceptible] <- runif(1, min = t-1, max = t)

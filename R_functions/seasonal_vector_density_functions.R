@@ -3,7 +3,7 @@
 
 
 vectorDensity <- function(A, lambda_osc, phi, base = 0.0005, time){
-  rho <- A*exp(-lambda_osc*t)*sin(phi*pi*t)
+  rho <- A*exp(-lambda_osc*time)*sin(phi*pi*time)
   ## set negative numbers to zero
   rho <- ifelse(rho < base, base, rho)
   return(rho)
