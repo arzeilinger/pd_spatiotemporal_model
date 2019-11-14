@@ -1,0 +1,387 @@
+---
+title: "Seasonal Pierce's Disease model"
+author: "Adam Zeiliinger"
+date: "11/6/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+my.packages <- c("ggplot2", "raster", "dplyr", "tidyr")
+lapply(my.packages, require, character.only = TRUE)
+
+#### Source additional functions
+## Vector density function
+#source("R_functions/seasonal_vector_density_functions.R")
+## Dispersal kernel functions, also includes makeCoordinates() function
+source("R_functions/dispersal_kernel_functions.R")
+source("R_functions/factor2numeric.R")
+```
+
+### Adrakey model
+
+At its core, we are modeling the instantaneous force of infection of susceptible plant $i$ in the interval between time $t$ to $t + dt$, $\lambda{i}(t)$, as a function of secondary or vine-to-vine spread rate $\beta$, dispersal scale parameter $\alpha$, and external or primary rate of infection $\epsilon$:
+
+$$
+\begin{align}
+\lambda_i(t) &= \beta \sum_{j \in I(t)} K(d_{i,j},\alpha) + \epsilon \\
+\ \\
+\text{Dispersal kernel function is a normalized negative exponential} \\
+\ K(d,\alpha) &= \frac{1}{2 \pi d \alpha} \cdot \exp(-\frac{d}{\alpha}) \\
+\end{align}
+$$
+
+### Sellke threshold construction
+
+Assume that each susceptible plant $i$ has a threshold of resistance $Q_{i}$ which are exponentially distributed and independent of each other: $Q_{i}\sim\exp(1)$. The cumulative pressure on plant $i$ by time $t$ is given by: 
+$$A_i(t)=\int_{0}^{t}\lambda_{i}(u)du$$
+Then plant $i$ becomes infected at time $t$ when $Q_{i}=A_{i}(t)$. In this way, we relate the force of infection upon a plant to its infection status in a stochastic manner (Adrakey et al. 2017; Sellke 1983).
+  
+
+### Incorporating vector density and infectivity
+
+Assume that the external infection rate $\epsilon$ and secondary infection rate $\beta$ are time-dependent functions of vector density and infectivity. This is inspired by Parry et al. (2014), who used a similar model to Adrakey et al., but deviates from their exact formulation.
+
+#### External infection rate:
+
+$$
+\begin{align}
+\text{Time-dependent external infection rate for plant i} \\
+\epsilon_{i}(t) &= \eta \kappa \cdot \rho_{\epsilon}(t) \cdot K(D_{i}, \alpha) \\
+\text{where } \rho_{\epsilon}(t) \text{ is a piecwise function as follows}: \\
+\rho_{\epsilon}(t)= \left\{
+\begin{array}{ll}
+  \tilde{\rho}(t) & \tilde{\rho}(t)>0 \\
+  \ 0 & otherwise \\
+\end{array}
+\right. \\
+\text{with} \\
+\tilde{\rho}(t) &= A \cdot \exp(-\lambda t) \cdot \sin(\phi \pi t) \\
+\end{align}
+$$
+
+Here, $\eta$ is the vector inoculation rate, $\kappa$ is the proportion of external vectors that are infectious, $K(D_{i},\alpha)$ is the immigrant dispersal kernel function, and $\rho_{\epsilon}(t)$ is the average density of immigrating external vectors from border vegetation. The immigrant dispersal kernel function could take an equivalent form as the within-field dispersal function $K(d_{i,j},\alpha)$ or could take a different form. The important difference is that whereas $d_{i,j}$ is the distance from susceptible plant $i$ and infected plant $j$, the distance $D_{i}$ is the distance from plant $i$ to the nearest border of the field. This form assumes that immgrating vectors are more likely to land on a plant near the field border than further inside the field.
+
+```{r}
+
+## Example immigrant vector dispersal
+alpha <- 10 # Dispersal parameter
+
+#### Plant spatial coordinates
+## Total number of plants (numPlants) = nrow(Coo) = nrc*nrc
+nrc <- 50 # Number of rows/columns
+Coo <- makeCoordinates(nrc)
+
+## Calculating distance to nearest field border for each plant
+borderCoo <- rep(c(1,nrc), each = 2)
+borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
+## Add 1 to the distance; plants on the border are then 1 space from the border and all other plants are shifted accordingly
+## Dispersal distances from border
+epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
+qplot(borderD,epsilonK,geom="path", xlab="Distance from border", ylab="K(D,alpha)")
+
+```
+
+\
+The density of immigrating vectors (per plant), $\rho_{\epsilon}(t)$, takes the form of a damped sine wave. The idea is to replicate the generational peaks of BGSS in the border vegetation observed in North Coast data set. This is a pretty crude phenomenological approach and probably needs more detail. Nonetheless with the right parameter values we can get a good approximation of the dynamics within 1 year. The piecewise element is to ensure that the function doesn't produce negative densities; a value greater than zero could also be specified for the "baseline".
+
+```{r}
+
+vectorDensity <- function(A, lambda_osc, phi, base = 0, time){
+  rho <- A*exp(-lambda_osc*time)*sin(phi*pi*time)
+  ## set negative numbers to zero
+  rho <- ifelse(rho < base, base, rho)
+  return(rho)
+}
+
+timeVec <- seq(1,52,0.1)
+rho_et <- vectorDensity(A = -10, lambda_osc = 0.05, phi = 0.09, base = 0, time = timeVec)
+qplot(timeVec, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path")
+
+```
+
+\
+
+#### Secondary infection rate
+
+
+$$
+\begin{align}
+\text{Time-dependent secondary infection rate} \\
+\beta(t) &= \eta \kappa_{\beta}(t) \cdot \rho_{\beta}(t) \\
+\text{where} \\
+\kappa_{\beta}(t) &= \frac{a(t-1)I(t-1)}{N} \\
+\rho_{\beta}(t) &= (1 - \mu_{v}) \cdot (\rho_{\beta}(t-1) + \rho_{\epsilon}(t-1)) \\
+a(t) &= \frac{bt^2}{c + dt + t^2}
+\end{align}
+$$
+
+Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of infected grapevines at the previous time step $\frac{I(t-1)}{N}$ and the time-dependent acquisition rate $a(t-1)$. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible.
+
+\
+
+The acquisition rate $a(t-1)$ is a function of time according to a Holling Type IV equation; this approximately replicates the acquisition rates in Daugherty and Almeida 2019 Fig. 1B with the parameter values: a = 0.1, b = 72, c = -16. The acquisition rate should be a function of Xylella population growth in infected plants, which in turn should be a function of time of infection. We could construct a sub-model for acquisition rate that is based on the infection times, since the model tracks this. But it's not immediately clear how to do this.
+
+\
+
+```{r}
+#### Time-dependent acquisition
+holling4 <- function(a, b, c, time){
+  (a*time^2)/(b + c*time + time^2)
+}
+
+a <- 0.1 # long-term y value
+## x value at peak = -2b/c should coincide with Sept/Oct
+b <- 1134
+c <- -63
+time <- seq(1,52,0.1)
+
+at <- holling4(a, b, c, time)
+
+qplot(time, at, geom="path", xlab="Week", ylab="Acquisition rate")
+
+```
+
+\
+
+### Running the model
+
+```{r, fig.cap = "Raster map of infection status of each plant", fig.align="center"}
+
+#### Parameter values
+## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
+alpha <- 10 # Dispersal parameter
+eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
+kappa_e <- 0.6 # Proportion of external vectors infectious
+a <- 0.6 # Acquisition rate
+muv <- 0.2 # In-field loss rate of vectors (due to both death and emigration)
+### Parameter values for vectorDensity() damped sine wave
+A <- -10 # Initial amplitude
+lambda_osc = 0.05 # Dampening
+phi = 0.09 # Angular frequency
+base = 0 # Baseline vector density
+
+## Number of time steps
+## Assume each time step is 1 week
+Tmax <- 52
+
+#### Plant spatial coordinates
+## Total number of plants (numPlants) = nrow(Coo) = nrc*nrc
+nrc <- 30
+Coo <- makeCoordinates(nrc)
+
+## Calculating distance to nearest field border for each plant
+borderCoo <- rep(c(1,nrc), each = 2)
+borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
+## Add 1 to the distance; plants on the border are then 1 space from the border and all other plants are shifted accordingly
+## Dispersal distances from border
+## When d = 0, normalizedKernel = Inf
+epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
+
+
+#### Setting up Inf_times and Inf_indices
+## Assumes already created a grid of hosts
+## Calculate total number of plants and vector of plant IDs
+numPlants <- nrow(Coo)
+IDs <- 1:numPlants
+#### Set up vectors to track quantities
+## Start with infection times all at Tmax
+Inf_times <- rep(Tmax, numPlants)
+## Vector of lambda values for each plant
+lambda <- rep(0, numPlants)
+## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
+rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
+## Matrix of epsilon_i(t) values
+epsilonMatrix <- matrix(NA, nrow = numPlants, ncol = Tmax)
+## Vector of Sellke thresholds
+Q <- rexp(numPlants, rate = 1)
+## Nested for loops of t, Susceptible plants, and Infected plants
+for(t in 1:Tmax){
+  ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
+  Infected_ind <- which(Inf_times < Tmax)
+  #Infected_times <- Inf_times[Infected_ind]
+  Susceptible_ind <- which(Inf_times == Tmax)
+  #Susceptible_times <- Inf_times[Susceptible_ind]
+  ## Summaries of infections and susceptibles
+  numInfections <- length(Infected_ind)
+  numSusceptibles <- length(Susceptible_ind)
+  ## Loop over susceptible plants
+  for(iiSusceptible in Susceptible_ind){
+    infTimeSusceptible <- Inf_times[iiSusceptible]
+    CooSusceptible <- Coo[iiSusceptible,1:2]
+    ## (Re)set dispersal kernel summation to 0
+    m <- 0
+    #### Loop over infected plants to get dispersal kernel from each Infected to a given Susceptible
+    for(iInfected in Infected_ind) {
+      infTimeInfected <- Inf_times[iInfected]
+      if(infTimeSusceptible > infTimeInfected) { ## This avoids Target plant being same as Source
+        ## Calculate d for each Infected plant
+        d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
+        ## Calculate the dispersal kernel based on each d and then sum over all kernels
+        ## Using Neri et al. 2014 normalized exponential kernel
+        ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
+        m <- m + chooseKernel(distance = d, alpha = alpha, kernelFunc = "normalized exponential")
+      }
+    } # End iInfected loop
+    #### Epsilon calculations
+    ## Seasonal vector density as damped sine wave
+    rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) 
+    ## Save rho_et
+    rho_etVec[t] <- rho_et
+    # rho_etSum <- sum(rho_etVec) ## Cumulative rho_et
+    epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
+    ## Save epsilonti
+    epsilonMatrix[iiSusceptible, t] <- epsilonti
+    #### Beta calculations
+    Infecteds_tm1 <- sum(Inf_times < t) # Number of infected plants at t-1
+    atm1 <- holling4(a = 0.1, b = 72, c = -16, time = t-1) # Time-dependent acquisition rate
+    kappa_t <- atm1*Infecteds_tm1/numPlants # Time-dependent proportion vectors infectious
+    ## In-field vector density
+    ## if() statement for case of first time step
+    if(t == 1){
+      rho_bt_tm1 <- 0
+      rho_et_tm1 <- 0
+    } else {
+      rho_bt_tm1 <- rho_btVec[t-1]
+      rho_et_tm1 <- rho_etVec[t-1]
+    }
+    rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
+    beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
+    betaVec[t] <- beta_t # Save beta_t
+    ## Cumulative force of infection for iiSusceptible plant
+    lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
+    ## If cumulative lambda (i.e., disease preassure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
+    ## then receives an infection time in range [t - 1, t]
+    if(lambda[iiSusceptible] >= Q[iiSusceptible]){
+      Inf_times[iiSusceptible] <- runif(1, min = t-1, max = t)
+    }
+  } # End iiSusceptible loop
+} # End t loop
+## Order indices of plants based on their infection time
+Inf_indices <- IDs[order(Inf_times)]
+
+
+#### Produce raster with infection times as values
+## Get raster dimensions from Coo
+## Coo[,1] = rows or y coord
+## Coo[,2] = columns or x coord
+CooRows <- Coo[,1]
+CooNrows <- length(unique(CooRows))
+CooYmn <- min(CooRows)
+CooYmx <- max(CooRows)
+CooColumns <- Coo[,2]
+CooNcols <- length(unique(CooColumns))
+CooXmn <- min(CooColumns)
+CooXmx <- max(CooColumns)
+
+rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
+                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
+                      vals = Inf_times)
+plot(rasterTimes)
+
+
+```
+
+\
+
+The simulation above was run for 1 year, with a time step of 1 week (i.e., 52 time steps), on a vineyard of 30 x 30 = 900 plants. In the figure above, green squares are healthy plants at the end of the year, with the other colors indicating the infection time of infected plants: lighter colors indicate earlier infection time. With the above parameter values, most infection occurs near the border apparently from immigrating vectors, rather than secondary spread. 
+\
+The figure below shows the number of infections over time
+
+```{r, fig.cap = "Cumulative number of infections per month", fig.align = "center"}
+
+
+Infections <- Inf_times[Inf_times < Tmax] 
+#hist(Infections)
+infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
+names(infSummary) <- c("time", "numInfections")
+infSummary$cumulative <- cumsum(infSummary$numInfections)
+infSummary$time <- factor2numeric(infSummary$time)
+
+ggplot(data = infSummary, aes(x = time, y = cumulative)) +
+  geom_path(lwd = 2) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "Cumulative number of infections") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\
+
+#### Dynamics of external and secondary infection rates, and in-field vector densities
+
+```{r, fig.align="center", fig.cap="Mean external infection rates over time"}
+
+#### Average external infection rate (epsilon) over susceptible plants at each time step
+plotEpsilon <- data.frame(meanEpsilon = colMeans(epsilonMatrix, na.rm = TRUE),
+                          week = seq(1, 52, length.out = Tmax))
+
+ggplot(data = plotEpsilon, aes(x = week, y = meanEpsilon)) +
+  geom_path(lwd = 1) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "Mean epsilon") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\
+
+```{r, fig.align="center", fig.cap="Secondary infection rate over time"}
+
+#### Beta values for each time step
+plotBeta <- data.frame(betaVec,
+                       week = seq(1,52, length.out = length(betaVec)))
+
+ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
+  geom_path(lwd = 1) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "Beta") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\
+
+```{r, fig.align="center", fig.cap="In-field vector density over time"}
+
+#### Beta values for each time step
+plotRho_bt <- data.frame(rho_btVec,
+                         week = seq(1,52, length.out = length(rho_btVec)))
+
+ggplot(data = plotRho_bt, aes(x = week, y = rho_btVec)) +
+  geom_path(lwd = 1) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "In-field vector density") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+
+
+Next steps:  
+1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
+2. I'm sure I could improve upon the damped sine wave for vector density. This is a "first pass". Suggestions would be great.  
+3. Incorporating winter recovery and roguing as described in the Powerpoint slides I sent awhile ago.
