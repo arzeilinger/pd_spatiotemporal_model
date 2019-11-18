@@ -189,7 +189,7 @@ Inf_times <- rep(Tmax, numPlants)
 ## Vector of lambda values for each plant
 lambda <- rep(0, numPlants)
 ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
-rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
+rho_etVec <- rho_btVec <- kappaVec <- betaVec <- rep(0, Tmax)
 ## Matrix of epsilon_i(t) values
 epsilonMatrix <- matrix(NA, nrow = numPlants, ncol = Tmax)
 ## Vector of Sellke thresholds
@@ -234,7 +234,8 @@ for(t in 1:Tmax){
     #### Beta calculations
     Infecteds_tm1 <- sum(Inf_times < t) # Number of infected plants at t-1
     atm1 <- holling4(a = 0.1, b = 72, c = -16, time = t-1) # Time-dependent acquisition rate
-    kappa_t <- atm1*Infecteds_tm1/numPlants # Time-dependent proportion vectors infectious
+    kappa_t <- atm1*Infecteds_tm1/numPlants # Time-dependent in-field proportion vectors infectious
+    kappaVec[t] <- kappa_t # Save kappa(t)
     ## In-field vector density
     ## if() statement for case of first time step
     if(t == 1){
@@ -313,7 +314,7 @@ ggplot(data = infSummary, aes(x = time, y = cumulative)) +
 
 \
 
-#### Dynamics of external and secondary infection rates, and in-field vector densities
+#### Dynamics of external and secondary infection rates
 
 ```{r, fig.align="center", fig.cap="Mean external infection rates over time"}
 
@@ -358,6 +359,7 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 ```
 
 \
+#### Plot dynamics of in-field vector density and in-field vector infectivity
 
 ```{r, fig.align="center", fig.cap="In-field vector density over time"}
 
@@ -379,7 +381,27 @@ ggplot(data = plotRho_bt, aes(x = week, y = rho_btVec)) +
 
 ```
 
+\
 
+```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
+
+#### Beta values for each time step
+plotkappa_t <- data.frame(kappaVec,
+                          week = seq(1,52, length.out = length(kappaVec)))
+
+ggplot(data = plotRho_bt, aes(x = week, y = kappaVec)) +
+  geom_path(lwd = 1) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
 
 Next steps:  
 1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
