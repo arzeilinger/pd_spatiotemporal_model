@@ -153,12 +153,12 @@ alpha <- 10 # Dispersal parameter
 eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
 kappa_e <- 0.6 # Proportion of external vectors infectious
 a <- 0.6 # Acquisition rate
-muv <- 0.2 # In-field loss rate of vectors (due to both death and emigration)
+muv <- 0.5 # In-field loss rate of vectors (due to both death and emigration)
 ### Parameter values for vectorDensity() damped sine wave
 A <- -10 # Initial amplitude
 lambda_osc = 0.05 # Dampening
 phi = 0.09 # Angular frequency
-base = 0 # Baseline vector density
+base = 0.1 # Baseline vector density
 
 ## Number of time steps
 ## Assume each time step is 1 week
@@ -178,35 +178,45 @@ borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
 epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
 
 
-#### Setting up Inf_times and Inf_indices
+#### Setting up Inf_times
 ## Assumes already created a grid of hosts
 ## Calculate total number of plants and vector of plant IDs
 numPlants <- nrow(Coo)
 IDs <- 1:numPlants
 #### Set up vectors to track quantities
-## Start with infection times all at Tmax
-Inf_times <- rep(Tmax, numPlants)
+## Exposure times, Infection times, Disease times (i.e., time of symptom onset)
+Exp_times <- Inf_times <- Disease_times <- rep(Tmax, numPlants)
 ## Vector of lambda values for each plant
 lambda <- rep(0, numPlants)
 ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
 rho_etVec <- rho_btVec <- kappaVec <- betaVec <- rep(0, Tmax)
 ## Matrix of epsilon_i(t) values
 epsilonMatrix <- matrix(NA, nrow = numPlants, ncol = Tmax)
-## Vector of Sellke thresholds
+## Vector of Sellke infection thresholds
 Q <- rexp(numPlants, rate = 1)
+#### Latent and cryptic periods
+## Parry et al. (2014) assumed cryptic period (I -> D) is gamma distributed
+## Here, we make a similar assumption for latent period (E -> I)
+## Assume that each period has an average of 4 weeks
+## a*s (mean) = 4; a:s (ratio) = 4:1; this ratio produces a humped distribution
+## Parameterization assumes that time step = 1 week, will need to be adjusted if time step changes
+## Durations of stays in Exposed compartment
+Et <- rgamma(numPlants, shape = 4, scale = 1)
+## Durations of stays in Infectious compartment
+It <- rgamma(numPlants, shape = 4, scale = 1)
 ## Nested for loops of t, Susceptible plants, and Infected plants
 for(t in 1:Tmax){
   ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
   Infected_ind <- which(Inf_times < Tmax)
   #Infected_times <- Inf_times[Infected_ind]
-  Susceptible_ind <- which(Inf_times == Tmax)
+  Susceptible_ind <- which(Exp_times == Tmax)
   #Susceptible_times <- Inf_times[Susceptible_ind]
   ## Summaries of infections and susceptibles
   numInfections <- length(Infected_ind)
   numSusceptibles <- length(Susceptible_ind)
   ## Loop over susceptible plants
   for(iiSusceptible in Susceptible_ind){
-    infTimeSusceptible <- Inf_times[iiSusceptible]
+    infTimeSusceptible <- Exp_times[iiSusceptible]
     CooSusceptible <- Coo[iiSusceptible,1:2]
     ## (Re)set dispersal kernel summation to 0
     m <- 0
@@ -220,6 +230,15 @@ for(t in 1:Tmax){
         ## Using Neri et al. 2014 normalized exponential kernel
         ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
         m <- m + chooseKernel(distance = d, alpha = alpha, kernelFunc = "normalized exponential")
+      }
+      ## Evaluate if cryptic period is exceeded
+      ## Infectious plants become Diseased when time step t exceeds Inf_times + It
+      ## Only update Infectious plants that aren't Diseased yet
+      if(t >= (infTimeInfected + It[iInfected]) & Disease_times[iInfected] == Tmax){
+        if(Disease_times[iInfected] < t){
+          warning("Old disease time being updated")
+        }
+        Disease_times[iInfected] <- runif(1, min = t-1, max = t)
       }
     } # End iInfected loop
     #### Epsilon calculations
@@ -250,15 +269,27 @@ for(t in 1:Tmax){
     betaVec[t] <- beta_t # Save beta_t
     ## Cumulative force of infection for iiSusceptible plant
     lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
-    ## If cumulative lambda (i.e., disease preassure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
+    ## If cumulative lambda (i.e., infection pressure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
     ## then receives an infection time in range [t - 1, t]
     if(lambda[iiSusceptible] >= Q[iiSusceptible]){
-      Inf_times[iiSusceptible] <- runif(1, min = t-1, max = t)
+      Exp_times[iiSusceptible] <- runif(1, min = t-1, max = t)
     }
   } # End iiSusceptible loop
+  ########################################################################################
+  #### Moving from Exposed to Infectious compartments
+  ## Select indices of plants that are in Exposed compartment (but not Infectious compartment yet)
+  Exposed_ind <- which(Exp_times < Tmax & Inf_times == Tmax)
+  ## Evaluate if latent period is exceeded
+  ## Exposed plants become Infectious when time step t exceeds Exp_times + Et 
+  for(iExposed in Exposed_ind){
+    if(Inf_times[iExposed] < t){
+      warning("Old infection time being updated")
+    }
+    if(t >= Exp_times[iExposed] + Et[iExposed]){
+      Inf_times[iExposed] <- runif(1, min = t-1, max = t)
+    }
+  } # End iExposed loop
 } # End t loop
-## Order indices of plants based on their infection time
-Inf_indices <- IDs[order(Inf_times)]
 
 
 #### Produce raster with infection times as values
@@ -291,7 +322,10 @@ The figure below shows the number of infections over time
 ```{r, fig.cap = "Cumulative number of infections per month", fig.align = "center"}
 
 
+Infections <- Exp_times[Exp_times < Tmax] 
 Infections <- Inf_times[Inf_times < Tmax] 
+Infections <- Disease_times[Disease_times < Tmax] 
+
 #hist(Infections)
 infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
 names(infSummary) <- c("time", "numInfections")
