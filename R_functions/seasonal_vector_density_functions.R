@@ -52,3 +52,16 @@ holling4 <- function(a, b, c, time){
 # at <- holling4(a, b, c, time)
 # 
 # qplot(time,at,geom="path", xlab="time", ylab="at")
+
+
+##########################################################################################
+#### Winter recovery function
+## Functional form based on Feil et al. (2003) and same as used by Gruber and Daugherty (2013)
+hostRecovery <- function(time){
+  (1 - exp(-0.045*time))^135.9
+}
+
+# timestep <- 1:365
+# timestep/7
+# test <- hostRecovery(timestep)
+# qplot(x = timestep, y = test, geom = "path")
