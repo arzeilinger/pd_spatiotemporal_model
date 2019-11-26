@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-my.packages <- c("ggplot2", "raster", "dplyr", "tidyr")
+my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table")
 lapply(my.packages, require, character.only = TRUE)
 
 #### Source additional functions
@@ -17,9 +17,15 @@ source("R_functions/dispersal_kernel_functions.R")
 source("R_functions/factor2numeric.R")
 ```
 
-### Adrakey model
+## Host compartments
 
-At its core, we are modeling the instantaneous force of infection of susceptible plant $i$ in the interval between time $t$ to $t + dt$, $\lambda{i}(t)$, as a function of secondary or vine-to-vine spread rate $\beta$, dispersal scale parameter $\alpha$, and external or primary rate of infection $\epsilon$:
+The model consists of a spatially explicit, discrete-time SEIDS host compartments. Susceptible hosts become infected and move to the Exposed (or latently infected) compartment according to a force of infection $\lambda_{i}(t)$. After a latent period, host i moves into the I, or Infectious, compartment and can now contribute to transmitting the pathogen to other hosts (through vectors). However, hosts in the Infectious compartment are considered asymptomatic. Then after some post-latent incubation period, host i moves into the D, or Diseased, compartment where it remains infectious but now also symptomatic. This framework is based on Parry et al. (2014). In additon, hosts in any infected compartment (E, I, D) can recover and become Susceptible again.
+
+\ 
+
+### Adrakey model for force of infection
+
+At its core, we are modeling the instantaneous force of infection of susceptible plant $i$ in the interval between time $t$ to $t + dt$, $\lambda_{i}(t)$, as a function of secondary or vine-to-vine spread rate $\beta$, dispersal scale parameter $\alpha$, and external or primary rate of infection $\epsilon$:
 
 $$
 \begin{align}
@@ -30,14 +36,26 @@ $$
 \end{align}
 $$
 
-### Sellke threshold construction
+### Transitions among compartments are stochastic
+#### Sellke threshold construction
 
 Assume that each susceptible plant $i$ has a threshold of resistance $Q_{i}$ which are exponentially distributed and independent of each other: $Q_{i}\sim\exp(1)$. The cumulative pressure on plant $i$ by time $t$ is given by: 
 $$A_i(t)=\int_{0}^{t}\lambda_{i}(u)du$$
-Then plant $i$ becomes infected at time $t$ when $Q_{i}=A_{i}(t)$. In this way, we relate the force of infection upon a plant to its infection status in a stochastic manner (Adrakey et al. 2017; Sellke 1983).
-  
+Then plant $i$ becomes latently infected at time $t$ when $Q_{i}=A_{i}(t)$. In this way, we relate the force of infection upon a plant to its infection status in a stochastic manner (Adrakey et al. 2017; Sellke 1983).
 
-### Incorporating vector density and infectivity
+#### Infectious and Diseased compartment transitions
+The transition from Exposed to Infectious is determined by a plant-specific latent period which is assumed to take the form of a gamma distribution, $t_{i}^I|t_{i}^E \sim gamma(\lambda_{EI}, \nu_{EI})$. Likewise, the transition from Infectious to Diseased is treated the same: $t_{i}^D|t_{i}^I \sim gamma(\lambda_{ID}, \nu_{ID})$. The values for the shape parameters were both set to $\lambda_{EI}, \lambda_{ID} = 4$, while the values of the scale parameters were both set to $\nu_{EI}, \nu_{ID} = 1$. This produces a humped shaped distribution with a mean value of 4 weeks for each time period, meaning that, on average, plants move from Exposed to Diseased in 8 weeks.
+
+```{r, fig.align='center', fig.cap='Gamma distribution for latent period and post-latent incubation period'}
+
+## Durations of stays in Exposed compartment
+Exposed_time <- rgamma(900, shape = 4, scale = 1)
+hist(Exposed_time)
+
+```
+
+
+## Incorporating vector density and infectivity
 
 Assume that the external infection rate $\epsilon$ and secondary infection rate $\beta$ are time-dependent functions of vector density and infectivity. This is inspired by Parry et al. (2014), who used a similar model to Adrakey et al., but deviates from their exact formulation.
 
@@ -81,7 +99,7 @@ qplot(borderD,epsilonK,geom="path", xlab="Distance from border", ylab="K(D,alpha
 
 ```
 
-\
+\ 
 The density of immigrating vectors (per plant), $\rho_{\epsilon}(t)$, takes the form of a damped sine wave. The idea is to replicate the generational peaks of BGSS in the border vegetation observed in North Coast data set. This is a pretty crude phenomenological approach and probably needs more detail. Nonetheless with the right parameter values we can get a good approximation of the dynamics within 1 year. The piecewise element is to ensure that the function doesn't produce negative densities; a value greater than zero could also be specified for the "baseline".
 
 ```{r}
@@ -99,7 +117,7 @@ qplot(timeVec, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom 
 
 ```
 
-\
+\ 
 
 #### Secondary infection rate
 
@@ -117,11 +135,11 @@ $$
 
 Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of infected grapevines at the previous time step $\frac{I(t-1)}{N}$ and the time-dependent acquisition rate $a(t-1)$. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible.
 
-\
+\ 
 
 The acquisition rate $a(t-1)$ is a function of time according to a Holling Type IV equation; this approximately replicates the acquisition rates in Daugherty and Almeida 2019 Fig. 1B with the parameter values: a = 0.1, b = 72, c = -16. The acquisition rate should be a function of Xylella population growth in infected plants, which in turn should be a function of time of infection. We could construct a sub-model for acquisition rate that is based on the infection times, since the model tracks this. But it's not immediately clear how to do this.
 
-\
+\ 
 
 ```{r}
 #### Time-dependent acquisition
@@ -141,9 +159,39 @@ qplot(time, at, geom="path", xlab="Week", ylab="Acquisition rate")
 
 ```
 
-\
+\ 
 
-### Running the model
+## Inter-annual processes
+
+At the end of each growing season (i.e., winter), we assume that winter recovery, plant dormancy, plant roguing, and vector overwintering occur instantaeously. This is similar to the assumptions of Daugherty and Almeida (2019), Gruber and Daugherty (2013), and the impulse equations of Rozins and Day (2016). 
+
+We assume that the probability of winter recovery for plant $i$, $P_{i}^R$, is a function of infection time (in day of year, DOY), specifically the time that it moved into the Exposed compartment during the growing season, according to the functional response from Feil et al. (2003):
+$$P_{i}^R = (1 - e^{-0.045 \cdot DOY})^{135.9}$$
+
+Recovery status of plant $i$ is then a random binomial variable with probability $P_{i}^R$. If plant i recovers, it then reverts back to Susceptible. If plant i does not recover it reverts back to the Exposed compartment (if it had moved into the Infectious or Diseased compartments within the year). Starting at the beginning of the next year, plants that remain infected then progresses into the Infectious (and Diseased) compartments after another latent or post-latent incubation period, $t_{i}^I, t_{i}^D$. These plants are then considered chronically infected are excluded from winter recovery for the rest of the simulation.
+
+
+```{r}
+
+hostRecovery <- function(time){
+  (1 - exp(-0.045*time))^135.9
+}
+
+timestep <- 1:365
+test <- hostRecovery(timestep)
+qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probability of winter recovery")
+
+```
+
+\ 
+
+#### Roguing and vector overwintering
+
+Roguing and vector overwintering still need to be developed and incorporated into the model.
+
+\ 
+
+## Running the model
 
 ```{r, fig.cap = "Raster map of infection status of each plant", fig.align="center"}
 
@@ -153,18 +201,17 @@ alpha <- 10 # Dispersal parameter
 eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
 kappa_e <- 0.6 # Proportion of external vectors infectious
 a <- 0.6 # Acquisition rate
-muv <- 0.5 # In-field loss rate of vectors (due to both death and emigration)
+muv <- 0.1 # In-field loss rate of vectors (due to both death and emigration)
 ### Parameter values for vectorDensity() damped sine wave
 A <- -10 # Initial amplitude
 lambda_osc = 0.05 # Dampening
 phi = 0.09 # Angular frequency
 base = 0.1 # Baseline vector density
 
-## Number of time steps
-## Assume each time step is 1 week
+## Number of time steps; assume each time step is 1 week
 Tmax <- 52
 ## Number of years
-numYears <- 8
+numYears <- 3
 
 #### Plant spatial coordinates
 ## Total number of plants (numPlants) = nrow(Coo) = nrc*nrc
@@ -172,15 +219,17 @@ nrc <- 30
 Coo <- makeCoordinates(nrc)
 
 ## Calculating distance to nearest field border for each plant
-borderCoo <- rep(c(1,nrc), each = 2)
-borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
+# borderCoo <- rep(c(1,nrc), each = 2)
+# borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
+## Distance from the left border whould just be the 1st coordinate
+borderD <- Coo[,1]
 ## Add 1 to the distance; plants on the border are then 1 space from the border and all other plants are shifted accordingly
 ## Dispersal distances from border
 ## When d = 0, normalizedKernel = Inf
 epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
 
 
-#### Setting up Inf_times
+#### Setting up empty vectors and matrices to track things
 ## Assumes already created a grid of hosts
 ## Calculate total number of plants and vector of plant IDs
 numPlants <- nrow(Coo)
@@ -203,8 +252,6 @@ for(y in 1:numYears){
   lambda <- rep(0, numPlants)
   ## (Re)set Sellke thresholds for infection
   Q <- rexp(numPlants, rate = 1)
-  ## (Re)set Sellke thresholds for recovery
-  Rect <- rexp(numPlants, rate = 1)
   #### (re)set stochastic latent and cryptic periods
   ## Parry et al. (2014) assumed cryptic period (I -> D) is gamma distributed
   ## Here, we make a similar assumption for latent period (E -> I)
@@ -323,7 +370,7 @@ for(y in 1:numYears){
     }
   } # End iExposed loop (for recovery)
   ## Check that recovery probability calculations are working correctly
-  recoveryCheck <- cbind(Exp_times[expIndices], probRecovery[expIndices], infectionStatus[expIndices])
+  recoveryCheck <- cbind(Exp_times[expIndices], probRecovery[expIndices], recoveryStatus[expIndices])
 } # End y loop
 
 #### Produce raster with infection times as values
@@ -342,46 +389,83 @@ CooXmx <- max(CooColumns)
 rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
                       ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
                       vals = Disease_times)
-plot(rasterTimes)
+plot(rasterTimes, main = "Week of year plant became diseased")
 
 
 ```
 
-\
+\ 
 
 The simulation above was run for 1 year, with a time step of 1 week (i.e., 52 time steps), on a vineyard of 30 x 30 = 900 plants. In the figure above, green squares are healthy plants at the end of the year, with the other colors indicating the infection time of infected plants: lighter colors indicate earlier infection time. With the above parameter values, most infection occurs near the border apparently from immigrating vectors, rather than secondary spread. 
-\
-The figure below shows the number of infections over time
+\ 
+The figure below shows the number of cumulative infections over time
 
 ```{r, fig.cap = "Cumulative number of infections per month", fig.align = "center"}
 
+## Vector of week number at the end of years, to produce vertical lines on ggplot
+endOfYears <- data.frame(timeStep = Tmax*1:numYears)
 
+## Vector of each time step (weeks)
+weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
 
+## Round up infection times
 finalInfectionTimes <- ceiling(Exp_times)
-#finalInfectionTimes <- floor(sapply(1:ncol(finalInfectionTimes), function(x) finalInfectionTimes[,x]+(52*(x-1))))
 
 infectionTimesList <- vector("list", numYears)
 for(i in 1:numYears){
   times.i <- finalInfectionTimes[,i]
   times.i <- times.i[times.i < Tmax]
   infCounts <- rle(sort(times.i))
-  infectionTimesList[[i]] <- data.frame(timeStep = infCounts$values+(52*(i-1)), 
-                                        n = infCounts$lengths,
-                                        cumuln = cumsum(infCounts$lengths))
+  infectionTimesList[[i]] <- data.frame(timeStep = infCounts$values+(Tmax*(i-1)), 
+                                        numInfections = infCounts$lengths,
+                                        cumulInfections = cumsum(infCounts$lengths))
 }
-infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame()
+infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
+  ## Expand data set so that each time step is included explicitly
+  right_join(., weekVector, by = "timeStep") %>%
+  fill(cumulInfections) %>% # Replace NAs with previous non-NA value
+  ## Replace NAs with 0
+  ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
+  replace_na(list(numInfections = 0, cumulInfections = 0)) 
 
 
-#hist(Infections)
-infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
-names(infSummary) <- c("time", "numInfections")
-infSummary$cumulative <- cumsum(infSummary$numInfections)
-infSummary$time <- factor2numeric(infSummary$time)
-
-ggplot(data = infectionTimes, aes(x = timeStep, y = cumuln)) +
+ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
   geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week") +
-  scale_y_continuous(name = "Cumulative number of infections") +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Cumulative number of latent infections") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+# hist(infectionTimes)
+# infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
+# names(infSummary) <- c("time", "numInfections")
+# infSummary$cumulative <- cumsum(infSummary$numInfections)
+# infSummary$time <- factor2numeric(infSummary$time)
+
+
+```
+
+\ 
+
+#### Plot dynamics of in-field vector density and in-field vector infectivity
+
+```{r, fig.align="center", fig.cap="In-field vector density over time"}
+
+#### Beta values for each time step
+plotRho_bt <- data.frame(rho_btVec,
+                         week = 1:length(rho_btVec))
+
+ggplot(data = plotRho_bt, aes(x = week, y = rho_btVec)) +
+  geom_path(lwd = 1) +
+  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_y_continuous(name = "In-field vector density") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -392,7 +476,35 @@ ggplot(data = infectionTimes, aes(x = timeStep, y = cumuln)) +
 
 ```
 
-\
+\ 
+
+#### Number of new infected plants scaled by in-field vector density
+
+```{r, fig.align = "center", fig.cap = "Number of new infections scaled by vector density. Note, chronic infections were removed from figure"}
+
+#### Add vector density to infection times data set
+## rho_btVec is a vector of densities of length Tmax; as long as nrow(infectionTimes) is a multiple of Tmax, rho_btVec values will be recycled
+infectionTimes$vectorDensity <- rho_btVec
+infectionTimes$scaledInfections <- with(infectionTimes, numInfections/vectorDensity)
+
+#### Remove chronic infections -- can be accomplished by removing the last week of each year
+infectionTimes <- infectionTimes[!(infectionTimes$timeStep %in% endOfYears$timeStep),]
+
+ggplot(data = infectionTimes, aes(x = timeStep, y = scaledInfections)) +
+  geom_path(lwd = 1) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Week") +
+  scale_y_continuous(name = "Number of new latent infections per vector") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
 
 #### Dynamics of external and secondary infection rates
 
@@ -416,7 +528,7 @@ ggplot(data = plotEpsilon, aes(x = week, y = meanEpsilon)) +
 
 ```
 
-\
+\ 
 
 ```{r, fig.align="center", fig.cap="Secondary infection rate over time"}
 
@@ -438,30 +550,7 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 
 ```
 
-\
-#### Plot dynamics of in-field vector density and in-field vector infectivity
-
-```{r, fig.align="center", fig.cap="In-field vector density over time"}
-
-#### Beta values for each time step
-plotRho_bt <- data.frame(rho_btVec,
-                         week = seq(1,52, length.out = length(rho_btVec)))
-
-ggplot(data = plotRho_bt, aes(x = week, y = rho_btVec)) +
-  geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
-  scale_y_continuous(name = "In-field vector density") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
-\
+\ 
 
 ```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
 
@@ -482,6 +571,7 @@ ggplot(data = plotRho_bt, aes(x = week, y = kappaVec)) +
         legend.position = "none") 
 
 ```
+
 
 Next steps:  
 1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
