@@ -77,7 +77,7 @@ $$
 \end{align}
 $$
 
-Here, $\eta$ is the vector inoculation rate, $\kappa$ is the proportion of external vectors that are infectious, $K(D_{i},\alpha)$ is the immigrant dispersal kernel function, and $\rho_{\epsilon}(t)$ is the average density of immigrating external vectors from border vegetation. The immigrant dispersal kernel function could take an equivalent form as the within-field dispersal function $K(d_{i,j},\alpha)$ or could take a different form. The important difference is that whereas $d_{i,j}$ is the distance from susceptible plant $i$ and infected plant $j$, the distance $D_{i}$ is the distance from plant $i$ to the nearest border of the field. This form assumes that immgrating vectors are more likely to land on a plant near the field border than further inside the field.
+Here, $\eta$ is the vector inoculation rate, $\kappa$ is the proportion of external vectors that are infectious, $K(D_{i},\alpha)$ is the immigrant dispersal kernel function, and $\rho_{\epsilon}(t)$ is the average density (per plant) of immigrating external vectors from border vegetation. The immigrant dispersal kernel function could take an equivalent form as the within-field dispersal function $K(d_{i,j},\alpha)$ or could take a different form. The important difference is that whereas $d_{i,j}$ is the distance from susceptible plant $i$ and infected plant $j$, the distance $D_{i}$ is the distance from plant $i$ to the nearest border of the field. This form assumes that immgrating vectors are more likely to land on a plant near the field border than further inside the field.
 
 ```{r}
 
@@ -136,26 +136,6 @@ Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ 
 
 \ 
 
-```{r}
-#### Time-dependent acquisition
-holling4 <- function(a, b, c, time){
-  (a*time^2)/(b + c*time + time^2)
-}
-
-a <- 0.1 # long-term y value
-## x value at peak = -2b/c should coincide with Sept/Oct
-b <- 1134
-c <- -63
-time <- seq(1,52,0.1)
-
-at <- holling4(a, b, c, time)
-
-qplot(time, at, geom="path", xlab="Week", ylab="Acquisition rate")
-
-```
-
-\ 
-
 ## Inter-annual processes
 
 At the end of each growing season (i.e., winter), we assume that winter recovery, plant dormancy, plant roguing, and vector overwintering occur instantaeously. This is similar to the assumptions of Daugherty and Almeida (2019), Gruber and Daugherty (2013), and the impulse equations of Rozins and Day (2016). 
@@ -182,7 +162,15 @@ qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probabilit
 
 #### Vector overwintering
 
+At the start of each growing season (t = 1), immigrating vector density, $\rho_{\epsilon}(t)$, is equal to some fraction of in-field vectors at the end of the previous season, $\rho_{\beta}(t = Tmax)$, . The fraction of overwintering vectors that survive is 1 - $\mu_{v,\epsilon}$, or the death rate of overwintering vectors. 
 
+\ 
+
+Likewise, at the start of each growing season, the natural infectivity of immigrating vectors, $\kappa_{\epsilon}$, is set to the infectivity of in-field vectors at the end of the previous season, $\kappa_{\beta}(t = Tmax)$. We assume that infectious and non-infectious overwintering vectors die at the same rate.
+
+\ 
+
+Vector overwintering can be "turned on" or "turned off" with the logical flag "vectorOverwintering".
 
 \ 
 
@@ -200,18 +188,20 @@ aD <- 0.7 # Acquisition rate from Diseased hosts; aD should be >= aI because of 
 muv <- 0.3 # In-field loss rate of vectors (due to both death and emigration)
 ### Parameter values for vectorDensity() damped sine wave
 A <- -15 # Initial amplitude
-lambda_osc = 0.05 # Dampening
-phi = 0.09 # Angular frequency
-base = 0.1 # Baseline vector density
+lambda_osc <- 0.05 # Dampening
+phi <- 0.09 # Angular frequency
+base <- 0.1 # Baseline vector density
+
+#### 
 
 #### Vector overwintering
 muv_e <- 0.5 # Loss rate of vectors overwintering
-vectorOverwintering <- FALSE
+vectorOverwintering <- TRUE
 
 ## Number of time steps; assume each time step is 1 week
 Tmax <- 52
 ## Number of years
-numYears <- 3
+numYears <- 6
 
 #### Plant spatial coordinates
 ## Total number of plants (numPlants) = nrow(Coo) = nrc*nrc
@@ -238,9 +228,11 @@ IDs <- 1:numPlants
 ## Exposure times should be a matrix: rows = plants, columns = years
 Exp_times <- matrix(Tmax, nrow = numPlants, ncol = numYears)
 ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
-rho_etVec <- rho_btVec <- kappaVec <- betaVec <- rep(0, Tmax)
+rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
 ## Matrix of epsilon_i(t) values
 epsilonMatrix <- matrix(NA, nrow = numPlants, ncol = Tmax)
+## Matrix of kappa_b(t) values
+kappaMatrix <- matrix(NA, nrow = Tmax, ncol = numYears)
 
 #### Start year loop
 for(y in 1:numYears){
@@ -304,7 +296,8 @@ for(y in 1:numYears){
       ## If vectorOverwintering == TRUE and it's the start of the year, external vector infectivity and density....
       ## ...are dependent on in-field infectivity and density at the end of the previous year
       if(vectorOverwintering & t == 1){
-        kappa_e_initial <- kappaVec[Tmax] # External vector infectivity equals in-field infectivity at end of previous year
+        # External vector infectivity equals in-field infectivity at end of previous year, unless it's the start of the first year
+        kappa_e_initial <- ifelse(y == 1, 0, kappaMatrix[Tmax, y-1]) 
         ##  Immigrating vector density as damped sine wave plus a fraction of in-field vectors from previous year
         rho_et_initial <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) + (1-muv_e)*rho_btVec[Tmax] 
         ## Save rho_et
@@ -335,7 +328,7 @@ for(y in 1:numYears){
         rho_bt_tm1 <- rho_btVec[t-1]
         rho_et_tm1 <- rho_etVec[t-1]
       }
-      kappaVec[t] <- kappa_t # Save kappa(t)
+      kappaMatrix[t,y] <- kappa_t # Save kappa(t)
       ## In-field vector density
       rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
       beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
@@ -384,7 +377,12 @@ for(y in 1:numYears){
     }
   } # End iExposed loop (for recovery)
   ## Check that recovery probability calculations are working correctly
-  recoveryCheck <- cbind(Exp_times[expIndices], probRecovery[expIndices], recoveryStatus[expIndices])
+  recoveryCheck <- cbind(Exp_times[expIndices, y], probRecovery[expIndices], recoveryStatus[expIndices])
+  #### Removal and replanting of diseased hosts
+  ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
+  ## ... and that all Diseased plants have equal probability of removal.
+  ## Assume that managers have are limited by the total number of plants they can remove and replant, rather than a fraction.
+  
 } # End y loop
 
 #### Produce raster with infection times as values
@@ -440,15 +438,15 @@ infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
   fill(cumulInfections) %>% # Replace NAs with previous non-NA value
   ## Replace NAs with 0
   ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
-  replace_na(list(numInfections = 0, cumulInfections = 0)) 
-
+  replace_na(list(numInfections = 0, cumulInfections = 0))
 
 ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
   geom_path(lwd = 1) +
   ## Add vertical lines indicating the end of each growing season/year
   geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
   scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Cumulative number of latent infections") +
+  scale_y_continuous(name = "Cumulative number of latent infections",
+                     sec.axis = sec_axis(~./numPlants, name = "Proportion of plants with latent infections")) +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -613,12 +611,12 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 ```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
 
 #### Kappa values for each time step
-plotkappa_t <- data.frame(kappaVec,
-                          week = seq(1,52, length.out = length(kappaVec)))
+plotKappa <- data.frame(kappa = c(kappaMatrix),
+                          week = 1:(Tmax*numYears))
 
-ggplot(data = plotkappa_t, aes(x = week, y = kappaVec)) +
+ggplot(data = plotKappa, aes(x = week, y = kappa)) +
   geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
+  scale_x_continuous(name = "Week") +
   scale_y_continuous(name = "Proportion of in-field vectors infectious") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
