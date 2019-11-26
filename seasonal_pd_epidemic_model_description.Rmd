@@ -112,7 +112,7 @@ vectorDensity <- function(A, lambda_osc, phi, base = 0, time){
 }
 
 timeVec <- seq(1,52,0.1)
-rho_et <- vectorDensity(A = -10, lambda_osc = 0.05, phi = 0.09, base = 0, time = timeVec)
+rho_et <- vectorDensity(A = -20, lambda_osc = 0.05, phi = 0.09, base = 0.05, time = timeVec)
 qplot(timeVec, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path")
 
 ```
@@ -127,17 +127,12 @@ $$
 \text{Time-dependent secondary infection rate} \\
 \beta(t) &= \eta \kappa_{\beta}(t) \cdot \rho_{\beta}(t) \\
 \text{where} \\
-\kappa_{\beta}(t) &= \frac{a(t-1)I(t-1)}{N} \\
+\kappa_{\beta}(t) &= \frac{a_{I}I(t-1) + a_{D}D(t-1)}{N} \\
 \rho_{\beta}(t) &= (1 - \mu_{v}) \cdot (\rho_{\beta}(t-1) + \rho_{\epsilon}(t-1)) \\
-a(t) &= \frac{bt^2}{c + dt + t^2}
 \end{align}
 $$
 
-Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of infected grapevines at the previous time step $\frac{I(t-1)}{N}$ and the time-dependent acquisition rate $a(t-1)$. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible.
-
-\ 
-
-The acquisition rate $a(t-1)$ is a function of time according to a Holling Type IV equation; this approximately replicates the acquisition rates in Daugherty and Almeida 2019 Fig. 1B with the parameter values: a = 0.1, b = 72, c = -16. The acquisition rate should be a function of Xylella population growth in infected plants, which in turn should be a function of time of infection. We could construct a sub-model for acquisition rate that is based on the infection times, since the model tracks this. But it's not immediately clear how to do this.
+Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of Infectious grapevines at the previous time step $\frac{I(t-1)}{N}$, the density of Diseased grapevines at the previous time step $\frac{D(t-1)}{N}$, and compartment-specific acquisition rates, $a_{I}, a_{D}$. The different acquisition rates imply that Diseased grapevines will have greater Xylella populations than Infectious grapevines, so acquisition rates from Diseased grapevines should be greater. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible.
 
 \ 
 
@@ -185,9 +180,9 @@ qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probabilit
 
 \ 
 
-#### Roguing and vector overwintering
+#### Vector overwintering
 
-Roguing and vector overwintering still need to be developed and incorporated into the model.
+
 
 \ 
 
@@ -200,17 +195,18 @@ Roguing and vector overwintering still need to be developed and incorporated int
 alpha <- 10 # Dispersal parameter
 eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
 kappa_e <- 0.6 # Proportion of external vectors infectious
-a <- 0.6 # Acquisition rate
-muv <- 0.1 # In-field loss rate of vectors (due to both death and emigration)
+aI <- 0.5 # Acquisition rate from Infectious hosts
+aD <- 0.7 # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+muv <- 0.3 # In-field loss rate of vectors (due to both death and emigration)
 ### Parameter values for vectorDensity() damped sine wave
-A <- -10 # Initial amplitude
+A <- -15 # Initial amplitude
 lambda_osc = 0.05 # Dampening
 phi = 0.09 # Angular frequency
 base = 0.1 # Baseline vector density
 
 #### Vector overwintering
-muv_e <- 0.2 # Loss rate of vectors overwintering
-vectorOverwintering <- TRUE
+muv_e <- 0.5 # Loss rate of vectors overwintering
+vectorOverwintering <- FALSE
 
 ## Number of time steps; assume each time step is 1 week
 Tmax <- 52
@@ -271,12 +267,11 @@ for(y in 1:numYears){
   for(t in 1:Tmax){
     ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
     Infected_ind <- which(Inf_times < Tmax)
-    #Infected_times <- Inf_times[Infected_ind]
     Susceptible_ind <- which(Exp_times[,y] == Tmax)
-    #Susceptible_times <- Inf_times[Susceptible_ind]
     ## Summaries of infections and susceptibles
     numInfections <- length(Infected_ind)
     numSusceptibles <- length(Susceptible_ind)
+    #######################################################################################################
     ## Loop over susceptible plants
     for(iiSusceptible in Susceptible_ind){
       infTimeSusceptible <- Exp_times[iiSusceptible, y]
@@ -304,33 +299,44 @@ for(y in 1:numYears){
           Disease_times[iInfected] <- runif(1, min = t-1, max = t)
         }
       } # End iInfected loop
+      ###############################################################################################
       #### Epsilon calculations
-      ## Seasonal vector density as damped sine wave
-      rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) 
-      ## Save rho_et
-      rho_etVec[t] <- rho_et
-      # rho_etSum <- sum(rho_etVec) ## Cumulative rho_et
-      epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
+      ## If vectorOverwintering == TRUE and it's the start of the year, external vector infectivity and density....
+      ## ...are dependent on in-field infectivity and density at the end of the previous year
+      if(vectorOverwintering & t == 1){
+        kappa_e_initial <- kappaVec[Tmax] # External vector infectivity equals in-field infectivity at end of previous year
+        ##  Immigrating vector density as damped sine wave plus a fraction of in-field vectors from previous year
+        rho_et_initial <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) + (1-muv_e)*rho_btVec[Tmax] 
+        ## Save rho_et
+        rho_etVec[t] <- rho_et_initial
+        epsilonti <- eta*kappa_e_initial*rho_et_initial*epsilonK[iiSusceptible]
+      } else {
+        ## Immigrating vector density as damped sine wave
+        rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t)
+        ## Save rho_et
+        rho_etVec[t] <- rho_et
+        epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
+      }
       ## Save epsilonti
       epsilonMatrix[iiSusceptible, t] <- epsilonti
+      ############################################################################################################
       #### Beta calculations
-      Infecteds_tm1 <- sum(Inf_times < t) # Number of infected plants at t-1
-      atm1 <- holling4(a = 0.1, b = 72, c = -16, time = t-1) # Time-dependent acquisition rate
-      kappa_t <- atm1*Infecteds_tm1/numPlants # Time-dependent in-field proportion vectors infectious
-      kappaVec[t] <- kappa_t # Save kappa(t)
-      ## In-field vector density
-      #### ifelse() statement for vector overwintering
-      ## If vectorOverwintering == TRUE, overwintering density is a fraction of the density in the field at the end of the previous year
-      ## If vectorOverwintering == FALSE, overwintering density is 0
-      overwinteringDensity <- ifelse(vectorOverwintering, (1-muv_e)*kappaVec[Tmax], 0)
-      ## if() statement for case of first time step
+      ## if() statement for start of the year
       if(t == 1){
-        rho_bt_tm1 <- 0
-        rho_et_tm1 <- overwinteringDensity
-      } else {
+        rho_bt_tm1 <- 0 # Initial in-field density from previous time step
+        rho_et_tm1 <- 0 # Initial immigrating density from previous time step
+        kappa_t <- 0 # Initial in-field infectivity
+        } else {
+        ## Calculating in-field infectivity
+        Infecteds_tm1 <- sum(Inf_times < t) # Number of Infectious plants at t-1
+        Diseased_tm1 <- sum(Disease_times < t) # Number of Diseased plants at t-1
+        kappa_t <- aI*(Infecteds_tm1/numPlants) + aD*(Diseased_tm1/numPlants) # Time-dependent in-field infectivity
+        ## Getting vector densities (in-field and immigrating) from previous time step
         rho_bt_tm1 <- rho_btVec[t-1]
         rho_et_tm1 <- rho_etVec[t-1]
       }
+      kappaVec[t] <- kappa_t # Save kappa(t)
+      ## In-field vector density
       rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
       beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
       betaVec[t] <- beta_t # Save beta_t
@@ -462,7 +468,7 @@ ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
 
 \ 
 
-#### Plot dynamics of in-field vector density and in-field vector infectivity
+#### Plot dynamics of in-field vector density
 
 ```{r, fig.align="center", fig.cap="In-field vector density over time"}
 
@@ -503,6 +509,50 @@ ggplot(data = infectionTimes, aes(x = timeStep, y = scaledInfections)) +
   geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
   scale_x_continuous(name = "Week") +
   scale_y_continuous(name = "Number of new latent infections per vector") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\ 
+
+#### Distribution of Infectious times
+
+```{r, fig.align='center', fig.cap='Distribution of times (week within season) that plants became Infectious'}
+
+plotInfTimes <- data.frame(infTimes = Inf_times[Inf_times < Tmax])
+
+ggplot(plotInfTimes, aes(x = infTimes)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(name = "Infection times (weeks)") +
+  scale_y_continuous(name = "Frequency") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+
+```
+
+\ 
+
+#### Distribution of Disease times
+```{r, fig.align='center', fig.cap='Distribution of times (week within season) that plants became Diseased'}
+
+plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
+
+ggplot(plotDiseaseTimes, aes(x = dTimes)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(name = "Disease times (weeks)") +
+  scale_y_continuous(name = "Frequency") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -566,7 +616,7 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 plotkappa_t <- data.frame(kappaVec,
                           week = seq(1,52, length.out = length(kappaVec)))
 
-ggplot(data = plotRho_bt, aes(x = week, y = kappaVec)) +
+ggplot(data = plotkappa_t, aes(x = week, y = kappaVec)) +
   geom_path(lwd = 1) +
   scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
   scale_y_continuous(name = "Proportion of in-field vectors infectious") +
