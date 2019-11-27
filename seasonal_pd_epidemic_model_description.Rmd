@@ -140,20 +140,27 @@ Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ 
 
 At the end of each growing season (i.e., winter), we assume that winter recovery, plant dormancy, plant roguing, and vector overwintering occur instantaeously. This is similar to the assumptions of Daugherty and Almeida (2019), Gruber and Daugherty (2013), and the impulse equations of Rozins and Day (2016). 
 
-We assume that the probability of winter recovery for plant $i$, $P_{i}^R$, is a function of infection time (in day of year, DOY), specifically the time that it moved into the Exposed compartment during the growing season, according to the functional response from Feil et al. (2003):
-$$P_{i}^R = (1 - e^{-0.045 \cdot DOY})^{135.9}$$
+#### Winter recovery
+
+We assume that the probability of winter recovery for plant $i$, $P_{i}^R$, is a function of infection time ($t$, day of year), specifically the time that it moved into the Exposed compartment during the growing season, according to the functional response from Feil et al. (2003):
+$$P_{i}^R = (1 - e^{bt})^{135.9}$$
+
+The recovery probability curve, $P_{i}^R$ can be shifted left or right with the parameter $b$. The default value is $b = -0.045$ from Feil et al. 2003. More negative values shift the curve to the left, meaning that plants with earlier infection times are more likely to recover; less negative values shift the curve to the right, making recovery less likely except for very late infections.
 
 Recovery status of plant $i$ is then a random binomial variable with probability $P_{i}^R$. If plant i recovers, it then reverts back to Susceptible. If plant i does not recover it reverts back to the Exposed compartment (if it had moved into the Infectious or Diseased compartments within the year). Starting at the beginning of the next year, plants that remain infected then progresses into the Infectious (and Diseased) compartments after another latent or post-latent incubation period, $t_{i}^I, t_{i}^D$. These plants are then considered chronically infected are excluded from winter recovery for the rest of the simulation.
 
 
 ```{r}
 
-hostRecovery <- function(time){
-  (1 - exp(-0.045*time))^135.9
+hostRecovery <- function(time, b = -0.045){
+  ## The curve can be shifted by modifying the value of parameter b
+  ## More negative values of b shift curve to the left, less negative values shift to the right.
+  ## Default value is estimate from Feil et al. 2003
+  (1 - exp(b*time))^135.9
 }
 
 timestep <- 1:365
-test <- hostRecovery(timestep)
+test <- hostRecovery(timestep, b = -0.06)
 qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probability of winter recovery")
 
 ```
@@ -164,13 +171,15 @@ qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probabilit
 
 At the start of each growing season (t = 1), immigrating vector density, $\rho_{\epsilon}(t)$, is equal to some fraction of in-field vectors at the end of the previous season, $\rho_{\beta}(t = Tmax)$, . The fraction of overwintering vectors that survive is 1 - $\mu_{v,\epsilon}$, or the death rate of overwintering vectors. 
 
-\ 
-
 Likewise, at the start of each growing season, the natural infectivity of immigrating vectors, $\kappa_{\epsilon}$, is set to the infectivity of in-field vectors at the end of the previous season, $\kappa_{\beta}(t = Tmax)$. We assume that infectious and non-infectious overwintering vectors die at the same rate.
 
+Vector overwintering can be "turned on" or "turned off" with the logical flag "vectorOverwintering".
+
 \ 
 
-Vector overwintering can be "turned on" or "turned off" with the logical flag "vectorOverwintering".
+#### Roguing and replacing diseased vines
+
+At the end of each growing season, we assume that some total number of sympomatic vines, are removed and replaced with new Susceptible vines. Only plants in the Diseased compartment are eligible for roguing. By setting a total number of vines to be rogued, rather than a proportion of diseased vines, we assume that managers have limited time and resources to rogue. So if the number of disease vines exceeds the number to be rogued, some disease vines are left in the field. In this case, a random sub-sample of Diseased vines revert back to the Susceptible compartment. The total number of vines to be rogued is variable that can be varied.
 
 \ 
 
@@ -192,7 +201,11 @@ lambda_osc <- 0.05 # Dampening
 phi <- 0.09 # Angular frequency
 base <- 0.1 # Baseline vector density
 
-#### 
+#### Winter recovery
+recoveryb <- -0.045 # Shifting the recovery curve
+
+#### Winter roguing
+numPlantsRogued <- 20 # Total number of plants that can be rogued at the end of each season
 
 #### Vector overwintering
 muv_e <- 0.5 # Loss rate of vectors overwintering
@@ -224,15 +237,16 @@ epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized ex
 ## Calculate total number of plants and vector of plant IDs
 numPlants <- nrow(Coo)
 IDs <- 1:numPlants
+
 #### Set up vectors to track state of each plants
 ## Exposure times should be a matrix: rows = plants, columns = years
 Exp_times <- matrix(Tmax, nrow = numPlants, ncol = numYears)
 ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
 rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
 ## Matrix of epsilon_i(t) values
-epsilonMatrix <- matrix(NA, nrow = numPlants, ncol = Tmax)
+epsilonMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
 ## Matrix of kappa_b(t) values
-kappaMatrix <- matrix(NA, nrow = Tmax, ncol = numYears)
+kappaMatrix <- matrix(0, nrow = Tmax, ncol = numYears)
 
 #### Start year loop
 for(y in 1:numYears){
@@ -358,6 +372,7 @@ for(y in 1:numYears){
   } # End t loop
   ###########################################################################################
   #### Winter processes
+  ###########################################################################################
   #### Host recovery
   ## Base host recovery on Exposure time, rather than Infection time
   ## Get all plants that became Exposed; differs from Exposed_ind above
@@ -365,7 +380,7 @@ for(y in 1:numYears){
   recoveryStatus <- probRecovery <- rep(0, length(numPlants))
   for(iExposed in expIndices){
     ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
-    probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7)
+    probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7, b = recoveryb)
     recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
     ## Make sure recoveryStatus is either 0 or 1
     if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){
@@ -375,14 +390,24 @@ for(y in 1:numYears){
     if(y < numYears & recoveryStatus[iExposed] == 0){
       Exp_times[iExposed, y+1] <- 0
     }
-  } # End iExposed loop (for recovery)
+  } # End Recovery iExposed loop 
   ## Check that recovery probability calculations are working correctly
-  recoveryCheck <- cbind(Exp_times[expIndices, y], probRecovery[expIndices], recoveryStatus[expIndices])
-  #### Removal and replanting of diseased hosts
+  # recoveryCheck <- cbind(Exp_times[expIndices, y], probRecovery[expIndices], recoveryStatus[expIndices])
+  ###########################################################################################
+  #### Roguing (removal) and replanting of diseased hosts
   ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
   ## ... and that all Diseased plants have equal probability of removal.
-  ## Assume that managers have are limited by the total number of plants they can remove and replant, rather than a fraction.
-  
+  ## Assume that managers have are limited by the total number of plants they can rogue and replant, rather than a fraction.
+  diseaseIndices <- which(Disease_times < Tmax)
+  if(length(diseaseIndices) <= numPlantsRogued){
+    ## If all diseased plants are to be rogued
+    Exp_times[diseaseIndices, y+1] <- Tmax
+  } else {
+    ## Get random sub-sample of plants to rogue and replace
+    roguedPlantIndices <- sample(diseaseIndices, size = numPlantsRogued, replace = FALSE)
+    ## Reset Exposed times to Tmax, making them Susceptible again
+    Exp_times[roguedPlantIndices, y+1] <- Tmax
+  } # End Roguing 
 } # End y loop
 
 #### Produce raster with infection times as values
@@ -424,14 +449,22 @@ weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
 finalInfectionTimes <- ceiling(Exp_times)
 
 infectionTimesList <- vector("list", numYears)
-for(i in 1:numYears){
-  times.i <- finalInfectionTimes[,i]
-  times.i <- times.i[times.i < Tmax]
-  infCounts <- rle(sort(times.i))
-  infectionTimesList[[i]] <- data.frame(timeStep = infCounts$values+(Tmax*(i-1)), 
+for(y in 1:numYears){
+  times.y <- finalInfectionTimes[,y]
+  times.y <- times.y[times.y < Tmax]
+  infCounts <- rle(sort(times.y))
+  infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
                                         numInfections = infCounts$lengths,
                                         cumulInfections = cumsum(infCounts$lengths))
+  ## Bug: 
+  ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
+  ## instead, cumulative infections go to zero at the time of the next infection.
+  ## if() statement to fix the bug:
+  if(all(Exp_times[,y] != 0)){
+    infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+  }
 }
+
 infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
   ## Expand data set so that each time step is included explicitly
   right_join(., weekVector, by = "timeStep") %>%
@@ -440,7 +473,7 @@ infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
   ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
   replace_na(list(numInfections = 0, cumulInfections = 0))
 
-ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
+infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
   geom_path(lwd = 1) +
   ## Add vertical lines indicating the end of each growing season/year
   geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
@@ -454,6 +487,11 @@ ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
         panel.border = element_rect(colour = "black"),
         panel.background = element_blank(),
         legend.position = "none") 
+infDynamicsPlot
+
+# ggsave("results/simulation_results/infection_dynamics_without_rouguing.jpg", plot = infDynamicsPlot,
+#        width = 7, height = 7, units = "in")
+
 
 # hist(infectionTimes)
 # infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
@@ -561,6 +599,31 @@ ggplot(plotDiseaseTimes, aes(x = dTimes)) +
 
 ```
 
+\ 
+
+#### Dynamics of in-field vector natural infectivity
+
+```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
+
+#### Kappa values for each time step
+plotKappa <- data.frame(kappa = c(kappaMatrix),
+                          week = 1:(Tmax*numYears))
+
+ggplot(data = plotKappa, aes(x = week, y = kappa)) +
+  geom_path(lwd = 1) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Week") +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
 
 #### Dynamics of external and secondary infection rates
 
@@ -607,27 +670,6 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 ```
 
 \ 
-
-```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
-
-#### Kappa values for each time step
-plotKappa <- data.frame(kappa = c(kappaMatrix),
-                          week = 1:(Tmax*numYears))
-
-ggplot(data = plotKappa, aes(x = week, y = kappa)) +
-  geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week") +
-  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
 
 Next steps:  
 1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
