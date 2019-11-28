@@ -1,0 +1,503 @@
+---
+title: "Comparing Seasonal PD Model Simulations"
+author: "Adam Zeiliinger"
+date: "11/27/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Comparing model runs
+
+This report compares the results of three different model runs:  
+1. A "base model run" without vectors overwintering (i.e., no inter-annual carryover of vectors) and no roguing  
+2. Base model including vector overwintering  
+3. Base model including vector overwintering and roguing  
+
+\ 
+
+```{r setup, include = FALSE, echo=TRUE, results = FALSE}
+my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table")
+lapply(my.packages, require, character.only = TRUE)
+
+#### Source Seasonal PD model function
+source("epidemic_simulations/simulation_functions/seasonalPDmodel.R")
+
+#### Source child functions, required to run seasonalPDModel()
+## seasonal_vector_density_functions also includes hostRecovery() function
+source("epidemic_simulations/simulation_functions/seasonal_vector_density_functions.R")
+## Dispersal kernel functions, also includes makeCoordinates() function
+source("epidemic_simulations/simulation_functions/dispersal_kernel_functions.R")
+source("epidemic_simulations/simulation_functions/factor2numeric.R")
+
+```
+
+\ 
+
+#### Global model parameters
+
+```{r global_model_parameters, echo = TRUE, include = TRUE}
+
+parameterList <- list(
+  #### Parameter values
+  ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
+  alpha = 10, # Dispersal parameter
+  eta = 0.5, # Inoculation rate (LAMBDA in Parry et al.)
+  kappa_e = 0.6, # Proportion of external vectors infectious
+  aI = 0.5, # Acquisition rate from Infectious hosts
+  aD = 0.7, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = 0.3, # In-field loss rate of vectors (due to both death and emigration)
+  ### Parameter values for vectorDensity() damped sine wave
+  A = -15, # Initial amplitude
+  lambda_osc = 0.05, # Dampening
+  phi = 0.09, # Angular frequency
+  base = 0.1, # Baseline vector density
+  #### Winter recovery
+  b = -0.045, # Shifting the recovery curve
+  muv_e = 0.5 # Vector overwintering mortality
+)
+
+## Number of time steps; assume each time step is 1 week
+Tmax <- 52
+
+## Number of years
+numYears <- 5
+
+## Number of plants on a row or column
+nrc <- 30
+
+
+```
+
+\ 
+
+Each variant is run for `r numYears` years with a time step of 1 week (`r Tmax` time steps per year) on a vineyard with `r nrc` x `r nrc` = 900 plants.
+
+\ 
+
+## Running all three model scenarios 
+
+```{r model_runs, echo = TRUE, results = FALSE}
+
+#### 1. Model run without vector overwintering or roguing
+simulation1 <- seasonalPDmodel(parameterList, 
+                               nrc = nrc, 
+                               Tmax = Tmax, 
+                               numYears = numYears, 
+                               numPlantsRogued = 0, # No roguing
+                               vectorOverwintering = FALSE) # No vector overwintering
+
+#### 2. Model run with vector overwintering
+simulation2 <- seasonalPDmodel(parameterList, 
+                               nrc = nrc, 
+                               Tmax = Tmax, 
+                               numYears = numYears, 
+                               numPlantsRogued = 0, # No roguing
+                               vectorOverwintering = TRUE) # Vector overwintering
+
+#### 3. Model run with vector overwintering and roguing
+simulation3 <- seasonalPDmodel(parameterList, 
+                               nrc = nrc, 
+                               Tmax = Tmax, 
+                               numYears = numYears, 
+                               numPlantsRogued = 20, # No roguing
+                               vectorOverwintering = TRUE) # Vector overwintering
+
+
+```
+
+## Model results
+### Dynamics of cumulative infections
+
+```{r, sim1_cumulative_infections, fig.align='center', fig.cap='Simulation 1. Cumulative infections', echo = FALSE}
+
+Exp_times <- simulation1$Exp_times
+numPlants <- nrc^2
+
+## Vector of week number at the end of years, to produce vertical lines on ggplot
+endOfYears <- data.frame(timeStep = Tmax*1:numYears)
+
+## Vector of each time step (weeks)
+weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
+
+## Round up infection times
+finalInfectionTimes <- ceiling(Exp_times)
+
+infectionTimesList <- vector("list", numYears)
+for(y in 1:numYears){
+  times.y <- finalInfectionTimes[,y]
+  times.y <- times.y[times.y < Tmax]
+  infCounts <- rle(sort(times.y))
+  infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
+                                        numInfections = infCounts$lengths,
+                                        cumulInfections = cumsum(infCounts$lengths))
+  ## Bug: 
+  ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
+  ## instead, cumulative infections go to zero at the time of the next infection.
+  ## if() statement to fix the bug:
+  if(all(Exp_times[,y] != 0)){
+    infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+  }
+}
+
+infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
+  ## Expand data set so that each time step is included explicitly
+  right_join(., weekVector, by = "timeStep") %>%
+  fill(cumulInfections) %>% # Replace NAs with previous non-NA value
+  ## Replace NAs with 0
+  ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
+  replace_na(list(numInfections = 0, cumulInfections = 0))
+
+#### Final percentage of plants infected
+sim1PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "cumulInfections"]/numPlants
+
+#### Plot
+infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(lwd = 1) +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Cumulative number of latent infections",
+                     sec.axis = sec_axis(~./numPlants, name = "Proportion of plants with latent infections")) +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+infDynamicsPlot
+
+
+```
+
+
+```{r, sim2_cumulative_infections, fig.align='center', fig.cap='Simulation 2. Cumulative infections with vector overwintering', echo = FALSE}
+
+Exp_times <- simulation2$Exp_times
+numPlants <- nrc^2
+
+## Vector of week number at the end of years, to produce vertical lines on ggplot
+endOfYears <- data.frame(timeStep = Tmax*1:numYears)
+
+## Vector of each time step (weeks)
+weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
+
+## Round up infection times
+finalInfectionTimes <- ceiling(Exp_times)
+
+infectionTimesList <- vector("list", numYears)
+for(y in 1:numYears){
+  times.y <- finalInfectionTimes[,y]
+  times.y <- times.y[times.y < Tmax]
+  infCounts <- rle(sort(times.y))
+  infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
+                                        numInfections = infCounts$lengths,
+                                        cumulInfections = cumsum(infCounts$lengths))
+  ## Bug: 
+  ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
+  ## instead, cumulative infections go to zero at the time of the next infection.
+  ## if() statement to fix the bug:
+  if(all(Exp_times[,y] != 0)){
+    infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+  }
+}
+
+infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
+  ## Expand data set so that each time step is included explicitly
+  right_join(., weekVector, by = "timeStep") %>%
+  fill(cumulInfections) %>% # Replace NAs with previous non-NA value
+  ## Replace NAs with 0
+  ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
+  replace_na(list(numInfections = 0, cumulInfections = 0))
+
+#### Final percentage of plants infected
+sim2PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "cumulInfections"]/numPlants
+
+#### Plot
+infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(lwd = 1) +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Cumulative number of latent infections",
+                     sec.axis = sec_axis(~./numPlants, name = "Proportion of plants with latent infections")) +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+infDynamicsPlot
+
+
+```
+
+
+```{r, sim3_cumulative_infections, fig.align='center', fig.cap='Simulation 3. Cumulative infections with vector overwintering and roguing', echo = FALSE}
+
+Exp_times <- simulation3$Exp_times
+numPlants <- nrc^2
+
+## Vector of week number at the end of years, to produce vertical lines on ggplot
+endOfYears <- data.frame(timeStep = Tmax*1:numYears)
+
+## Vector of each time step (weeks)
+weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
+
+## Round up infection times
+finalInfectionTimes <- ceiling(Exp_times)
+
+infectionTimesList <- vector("list", numYears)
+for(y in 1:numYears){
+  times.y <- finalInfectionTimes[,y]
+  times.y <- times.y[times.y < Tmax]
+  infCounts <- rle(sort(times.y))
+  infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
+                                        numInfections = infCounts$lengths,
+                                        cumulInfections = cumsum(infCounts$lengths))
+  ## Bug: 
+  ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
+  ## instead, cumulative infections go to zero at the time of the next infection.
+  ## if() statement to fix the bug:
+  if(all(Exp_times[,y] != 0)){
+    infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+  }
+}
+
+infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
+  ## Expand data set so that each time step is included explicitly
+  right_join(., weekVector, by = "timeStep") %>%
+  fill(cumulInfections) %>% # Replace NAs with previous non-NA value
+  ## Replace NAs with 0
+  ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
+  replace_na(list(numInfections = 0, cumulInfections = 0))
+
+#### Final percentage of plants infected
+sim3PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "cumulInfections"]/numPlants
+
+infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(lwd = 1) +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Cumulative number of latent infections",
+                     sec.axis = sec_axis(~./numPlants, name = "Proportion of plants with latent infections")) +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+infDynamicsPlot
+
+
+```
+
+\ 
+
+### Dynamics of in-field vector infectivity
+
+```{r sim1_infectivity, fig.align="center", fig.cap="Simulation 1. In-field vector infectivity", echo = FALSE}
+
+#### Kappa values for each time step
+kappaMatrix <- simulation1$kappaMatrix
+plotKappa <- data.frame(kappa = c(kappaMatrix),
+                          week = 1:(Tmax*numYears))
+
+ggplot(data = plotKappa, aes(x = week, y = kappa)) +
+  geom_path(lwd = 1) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Week") +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+```{r sim2_infectivity, fig.align="center", fig.cap="Simulation 2. In-field vector infectivity over time", echo = FALSE}
+
+#### Kappa values for each time step
+kappaMatrix <- simulation2$kappaMatrix
+plotKappa <- data.frame(kappa = c(kappaMatrix),
+                          week = 1:(Tmax*numYears))
+
+ggplot(data = plotKappa, aes(x = week, y = kappa)) +
+  geom_path(lwd = 1) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Week") +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+
+```{r sim3_infectivity, fig.align="center", fig.cap="Simulation 3. In-field vector infectivity with vector overwintering", echo = FALSE}
+
+#### Kappa values for each time step
+kappaMatrix <- simulation3$kappaMatrix
+plotKappa <- data.frame(kappa = c(kappaMatrix),
+                          week = 1:(Tmax*numYears))
+
+ggplot(data = plotKappa, aes(x = week, y = kappa)) +
+  geom_path(lwd = 1) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_x_continuous(name = "Week") +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\ 
+
+### Distribution of time of disease onset
+
+```{r sim1_disease_time_distribution, fig.align='center', fig.cap='Simulation 1. Distribution of Disease times', echo = FALSE}
+
+Disease_times <- simulation1$Disease_times
+plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
+
+ggplot(plotDiseaseTimes, aes(x = dTimes)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(name = "Disease times (weeks)") +
+  scale_y_continuous(name = "Frequency") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+
+```{r sim2_disease_time_distribution, fig.align='center', fig.cap='Simulation 2. Distribution of Disease times with vector overwintering', echo = FALSE}
+
+Disease_times <- simulation2$Disease_times
+plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
+
+ggplot(plotDiseaseTimes, aes(x = dTimes)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(name = "Disease times (weeks)") +
+  scale_y_continuous(name = "Frequency") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+
+```{r sim3_disease_time_distribution, fig.align='center', fig.cap='Simulation 3. Distribution of Disease times with vector overwintering and roguing', echo = FALSE}
+
+Disease_times <- simulation3$Disease_times
+plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
+
+ggplot(plotDiseaseTimes, aes(x = dTimes)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(name = "Disease times (weeks)") +
+  scale_y_continuous(name = "Frequency") +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
+
+```
+
+\ 
+
+### Spatial patterns of Disease
+
+```{r sim1_map, fig.align='center', fig.cap='Simulation 1. Raster map of Disease patterns', echo = FALSE}
+
+Coo <- simulation1$Coo
+Disease_times <- simulation1$Disease_times
+
+#### Produce raster with infection times as values
+## Get raster dimensions from Coo
+## Coo[,1] = rows or y coord
+## Coo[,2] = columns or x coord
+CooRows <- Coo[,1]
+CooNrows <- length(unique(CooRows))
+CooYmn <- min(CooRows)
+CooYmx <- max(CooRows)
+CooColumns <- Coo[,2]
+CooNcols <- length(unique(CooColumns))
+CooXmn <- min(CooColumns)
+CooXmx <- max(CooColumns)
+
+rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
+                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
+                      vals = Disease_times)
+plot(rasterTimes, main = "Week of year plant became diseased")
+
+```
+
+
+```{r sim2_map, fig.align='center', fig.cap='Simulation 2. Raster map of Disease patterns with vector overwintering', echo = FALSE}
+
+Disease_times <- simulation2$Disease_times
+
+rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
+                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
+                      vals = Disease_times)
+plot(rasterTimes, main = "Week of year plant became diseased")
+
+```
+
+
+```{r sim3_map, fig.align='center', fig.cap='Simulation 3. Raster map of Disease patterns with vector overwintering', echo = FALSE}
+
+Disease_times <- simulation3$Disease_times
+
+rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
+                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
+                      vals = Disease_times)
+plot(rasterTimes, main = "Week of year plant became diseased")
+
+```
+
+\ 
+
+## Conclusions from comparing model runs
+
+In the base model run (without vector overwintering), `r round(sim1PercInfected)`% of plants became latently infected by the end of `r numYears` years, with clear increases over the years. With vector overwintering, the final percent of plants latently infected was `r round(sim2PercInfected)`%. This may seem like a large difference; however, looking at the results from multiple runs of each model scenario (not shown here), there are large differences in the outcomes within scenario due to stochasticity. So it's difficult to compare these two scenarios. 
+
+Nonetheless, the scenario with roguing shows consistent differences. When 20 diseased plants were rogued, infection prevalence was mostly kept in check without clear increases from year to year; the final percent of plants infected was only at `r round(sim3PercInfected)`%. 
+
+Similar dynamics can be seen in the in-field vector infectivity plots.
+
+For the distribution of timing of disease onset, we see three peaks of disease onset throughout the growing season in the base model and with vector overwintering. With roguing, few plants become diseased (because they are removed) and the peaks are not as clear.
+
+For the spatial patterns of disease, each model run shows a gradient of disease moving from left to right. With roguing, disease remained mostly on the left border of the field.
+
+I suspect stochasticity will overwhelm the differences between the base model and the addition of vector overwintering. I'll need to run each scenario many times than take a summary of each set of runs to test this.

@@ -2,8 +2,14 @@
 title: "Seasonal Pierce's Disease model"
 author: "Adam Zeiliinger"
 date: "11/6/2019"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 120)
+```
 
 ```{r setup, include=FALSE}
 my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table")
@@ -140,14 +146,12 @@ Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ 
 
 At the end of each growing season (i.e., winter), we assume that winter recovery, plant dormancy, plant roguing, and vector overwintering occur instantaeously. This is similar to the assumptions of Daugherty and Almeida (2019), Gruber and Daugherty (2013), and the impulse equations of Rozins and Day (2016). 
 
-#### Winter recovery
+#### Winter recovery and dormancy
 
 We assume that the probability of winter recovery for plant $i$, $P_{i}^R$, is a function of infection time ($t$, day of year), specifically the time that it moved into the Exposed compartment during the growing season, according to the functional response from Feil et al. (2003):
 $$P_{i}^R = (1 - e^{bt})^{135.9}$$
 
 The recovery probability curve, $P_{i}^R$ can be shifted left or right with the parameter $b$. The default value is $b = -0.045$ from Feil et al. 2003. More negative values shift the curve to the left, meaning that plants with earlier infection times are more likely to recover; less negative values shift the curve to the right, making recovery less likely except for very late infections.
-
-Recovery status of plant $i$ is then a random binomial variable with probability $P_{i}^R$. If plant i recovers, it then reverts back to Susceptible. If plant i does not recover it reverts back to the Exposed compartment (if it had moved into the Infectious or Diseased compartments within the year). Starting at the beginning of the next year, plants that remain infected then progresses into the Infectious (and Diseased) compartments after another latent or post-latent incubation period, $t_{i}^I, t_{i}^D$. These plants are then considered chronically infected are excluded from winter recovery for the rest of the simulation.
 
 
 ```{r}
@@ -160,18 +164,24 @@ hostRecovery <- function(time, b = -0.045){
 }
 
 timestep <- 1:365
-test <- hostRecovery(timestep, b = -0.06)
+test <- hostRecovery(timestep, b = -0.045)
 qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probability of winter recovery")
 
 ```
 
 \ 
 
+Recovery status of plant $i$ is then a random binomial variable with probability $P_{i}^R$. If plant i recovers, it then reverts back to Susceptible. If plant i does not recover it remains in the Exposed compartment (or reverts back to the Exposed compartment if it had moved into the Infectious or Diseased compartments within the year). Starting at the beginning of the next year, plants that remain infected then progress into the Infectious (and Diseased) compartments after a latent or post-latent incubation period, $t_{i}^I, t_{i}^D$. These plants are then considered chronically infected. They are eligible to recover the next winter with very low probability (we could easily exclude them from recovery if we want).
+
+All plants that remain chronically infected and have progressed to the Infectious or Diseased compartments revert back to the Exposed compartment. They then progress into the Infectious and Diseased compartments again after another set of latent and post-latent incubation periods. Currently, new periods, $t_{i}^I, t_{i}^D$, are randomly assigned (according to Gamma distributions, above) each new growing season. This induces year-to-year stochasticity in the progression of plants into the different compartments.
+
+\ 
+
 #### Vector overwintering
 
-At the start of each growing season (t = 1), immigrating vector density, $\rho_{\epsilon}(t)$, is equal to some fraction of in-field vectors at the end of the previous season, $\rho_{\beta}(t = Tmax)$, . The fraction of overwintering vectors that survive is 1 - $\mu_{v,\epsilon}$, or the death rate of overwintering vectors. 
+At the start of each growing season (t = 1), immigrating vector density, $\rho_{\epsilon}(t)$, is equal to some fraction of in-field vectors at the end of the previous season, $\rho_{\beta}(t = Tmax)$. The fraction of overwintering vectors that survive is 1 - $\mu_{v,\epsilon}$, or the death rate of overwintering vectors. 
 
-Likewise, at the start of each growing season, the natural infectivity of immigrating vectors, $\kappa_{\epsilon}$, is set to the infectivity of in-field vectors at the end of the previous season, $\kappa_{\beta}(t = Tmax)$. We assume that infectious and non-infectious overwintering vectors die at the same rate.
+Likewise, at the start of each growing season, the natural infectivity of immigrating vectors, $\kappa_{\epsilon}$, is set to the infectivity of in-field vectors at the end of the previous season, $\kappa_{\beta}(t = Tmax)$. We assume that infectious and non-infectious overwintering vectors die at the same rate, so the overall proportion of vectors infectious remains the same from the end of one season to the beginning of the next.
 
 Vector overwintering can be "turned on" or "turned off" with the logical flag "vectorOverwintering".
 
@@ -179,13 +189,13 @@ Vector overwintering can be "turned on" or "turned off" with the logical flag "v
 
 #### Roguing and replacing diseased vines
 
-At the end of each growing season, we assume that some total number of sympomatic vines, are removed and replaced with new Susceptible vines. Only plants in the Diseased compartment are eligible for roguing. By setting a total number of vines to be rogued, rather than a proportion of diseased vines, we assume that managers have limited time and resources to rogue. So if the number of disease vines exceeds the number to be rogued, some disease vines are left in the field. In this case, a random sub-sample of Diseased vines revert back to the Susceptible compartment. The total number of vines to be rogued is variable that can be varied.
+At the end of each growing season, we assume that some total number of sympomatic vines, are removed and replaced with new Susceptible vines. Only plants in the Diseased compartment are eligible for roguing. By setting a total number of vines to be rogued, rather than a proportion of diseased vines, we assume that managers have limited time and resources to rogue. So if the number of disease vines exceeds the number to be rogued, some disease vines are left in the field. In this case, a random sub-sample of Diseased vines revert back to the Susceptible compartment. The total number of vines to be rogued can be varied. Roguing can be "turned off" by setting the variable numPlantsRogued = 0.
 
 \ 
 
 ## Running the model
 
-```{r, fig.cap = "Raster map of infection status of each plant", fig.align="center"}
+```{r, fig.cap = "Raster map of time to disease of each plant", fig.align="center"}
 
 #### Parameter values
 ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
@@ -373,41 +383,44 @@ for(y in 1:numYears){
   ###########################################################################################
   #### Winter processes
   ###########################################################################################
-  #### Host recovery
-  ## Base host recovery on Exposure time, rather than Infection time
-  ## Get all plants that became Exposed; differs from Exposed_ind above
-  expIndices <- which(Exp_times[,y] < Tmax)
-  recoveryStatus <- probRecovery <- rep(0, length(numPlants))
-  for(iExposed in expIndices){
-    ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
-    probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7, b = recoveryb)
-    recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
-    ## Make sure recoveryStatus is either 0 or 1
-    if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){
-      warning("Something is wrong with recoveryStatus")
-    }
-    ## For chronic infected plants, set Exp_times for next year to 0
-    if(y < numYears & recoveryStatus[iExposed] == 0){
-      Exp_times[iExposed, y+1] <- 0
-    }
-  } # End Recovery iExposed loop 
-  ## Check that recovery probability calculations are working correctly
-  # recoveryCheck <- cbind(Exp_times[expIndices, y], probRecovery[expIndices], recoveryStatus[expIndices])
-  ###########################################################################################
-  #### Roguing (removal) and replanting of diseased hosts
-  ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
-  ## ... and that all Diseased plants have equal probability of removal.
-  ## Assume that managers have are limited by the total number of plants they can rogue and replant, rather than a fraction.
-  diseaseIndices <- which(Disease_times < Tmax)
-  if(length(diseaseIndices) <= numPlantsRogued){
-    ## If all diseased plants are to be rogued
-    Exp_times[diseaseIndices, y+1] <- Tmax
-  } else {
-    ## Get random sub-sample of plants to rogue and replace
-    roguedPlantIndices <- sample(diseaseIndices, size = numPlantsRogued, replace = FALSE)
-    ## Reset Exposed times to Tmax, making them Susceptible again
-    Exp_times[roguedPlantIndices, y+1] <- Tmax
-  } # End Roguing 
+  ## If simulation is in it's last year, skip winter processes
+  if(y < numYears){
+    #### Host recovery
+    ## Base host recovery on Exposure time, rather than Infection time
+    ## Get all plants that became Exposed; differs from Exposed_ind above
+    expIndices <- which(Exp_times[,y] < Tmax)
+    recoveryStatus <- probRecovery <- rep(0, length(numPlants))
+    for(iExposed in expIndices){
+      ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
+      probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7, b = recoveryb)
+      recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
+      ## Make sure recoveryStatus is either 0 or 1
+      if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){
+        warning("Something is wrong with recoveryStatus")
+      }
+      ## For chronic infected plants, set Exp_times for next year to 0
+      if(recoveryStatus[iExposed] == 0){
+        Exp_times[iExposed, y+1] <- 0
+      }
+    } # End Recovery iExposed loop 
+    ## Check that recovery probability calculations are working correctly
+    # recoveryCheck <- cbind(Exp_times[expIndices, c(y, y+1)], probRecovery[expIndices], recoveryStatus[expIndices])
+    ###########################################################################################
+    #### Roguing (removal) and replanting of diseased hosts
+    ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
+    ## ... and that all Diseased plants have equal probability of removal.
+    ## Assume that managers have are limited by the total number of plants they can rogue and replant, rather than a fraction.
+    diseaseIndices <- which(Disease_times < Tmax)
+    if(length(diseaseIndices) <= numPlantsRogued){
+      ## If all diseased plants are to be rogued
+      Exp_times[diseaseIndices, y+1] <- Tmax
+    } else {
+      ## Get random sub-sample of plants to rogue and replace
+      roguedPlantIndices <- sample(diseaseIndices, size = numPlantsRogued, replace = FALSE)
+      ## Reset Exposed times to Tmax, making them Susceptible again
+      Exp_times[roguedPlantIndices, y+1] <- Tmax
+    } # End Roguing 
+  } # End Winter if() statement
 } # End y loop
 
 #### Produce raster with infection times as values
@@ -433,11 +446,13 @@ plot(rasterTimes, main = "Week of year plant became diseased")
 
 \ 
 
-The simulation above was run for 1 year, with a time step of 1 week (i.e., 52 time steps), on a vineyard of 30 x 30 = 900 plants. In the figure above, green squares are healthy plants at the end of the year, with the other colors indicating the infection time of infected plants: lighter colors indicate earlier infection time. With the above parameter values, most infection occurs near the border apparently from immigrating vectors, rather than secondary spread. 
-\ 
-The figure below shows the number of cumulative infections over time
+The simulation above was run for `r numYears` years, with a time step of 1 week (i.e., 52 time steps), on a vineyard of `r nrc` x `r nrc` = `r nrc*nrc` plants. In the figure above, green squares are healthy plants at the end of the simulation, with the other colors indicating the time (week within the season) of that each plants became diseased: lighter colors indicate earlier disease times. I also set immigration of vectors from only 1 border. 
 
-```{r, fig.cap = "Cumulative number of infections per month", fig.align = "center"}
+\ 
+
+The figure below shows the number of cumulative infections over time for all six years
+
+```{r, fig.cap = "Cumulative number of infections per week. Vertical dashed lines indicate the end of each year", fig.align = "center"}
 
 ## Vector of week number at the end of years, to produce vertical lines on ggplot
 endOfYears <- data.frame(timeStep = Tmax*1:numYears)
@@ -487,18 +502,11 @@ infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfe
         panel.border = element_rect(colour = "black"),
         panel.background = element_blank(),
         legend.position = "none") 
-infDynamicsPlot
 
 # ggsave("results/simulation_results/infection_dynamics_without_rouguing.jpg", plot = infDynamicsPlot,
 #        width = 7, height = 7, units = "in")
 
-
-# hist(infectionTimes)
-# infSummary <- Infections %>% floor() %>% table() %>% as.data.frame()
-# names(infSummary) <- c("time", "numInfections")
-# infSummary$cumulative <- cumsum(infSummary$numInfections)
-# infSummary$time <- factor2numeric(infSummary$time)
-
+infDynamicsPlot
 
 ```
 
@@ -674,4 +682,4 @@ ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
 Next steps:  
 1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
 2. I'm sure I could improve upon the damped sine wave for vector density. This is a "first pass". Suggestions would be great.  
-3. Incorporating winter recovery and roguing as described in the Powerpoint slides I sent awhile ago.
+3. Running different simulations that we talked about in the last meeting: forcing $\epsilon$ and $\beta$ to be zero, respectively, and removing the first and second generations of immigrating vectors.
