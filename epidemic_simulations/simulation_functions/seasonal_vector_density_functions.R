@@ -70,3 +70,39 @@ hostRecovery <- function(time, b = -0.045){
 # qplot(time,at,geom="path", xlab="time", ylab="at")
 
 
+########################################################################################
+#### Function to process final Exposure times (Exp_times) into cumulative (latent) infections over time
+processLatentInfections <- function(Exp_times, numYears, Tmax, weekVector){
+  #### Inputs
+  ## Exp_times = a matrix (numPlants x numYears) of the time that each plant entered the Exposed compartment in each year
+  ## numYears = scalar number of years
+  ## Tmax = scalar number of time steps (weeks) in each year
+  ## weekVector = a vector with each consecutive time step (weeks)
+  #### Returns a data.frame with columns of time step, the number of new infections at that time, and the cumulative number of infections
+  finalInfectionTimes <- ceiling(Exp_times)
+  infectionTimesList <- vector("list", numYears)
+  for(y in 1:numYears){
+    times.y <- finalInfectionTimes[,y]
+    times.y <- times.y[times.y < Tmax]
+    infCounts <- rle(sort(times.y))
+    infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
+                                          numInfections = infCounts$lengths,
+                                          cumulInfections = cumsum(infCounts$lengths))
+    ## Bug: 
+    ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
+    ## instead, cumulative infections go to zero at the time of the next infection.
+    ## if() statement to fix the bug:
+    if(all(Exp_times[,y] != 0)){
+      infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+    }
+  }
+  ## Compile infection (exposure) times into a data frame
+  infTimesProcessed <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
+    ## Expand data set so that each time step is included explicitly
+    right_join(., weekVector, by = "timeStep") %>%
+    fill(cumulInfections) %>% # Replace NAs with previous non-NA value
+    ## Replace NAs with 0
+    ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
+    replace_na(list(numInfections = 0, cumulInfections = 0))
+  return(infTimesProcessed)
+}
