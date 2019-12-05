@@ -46,9 +46,9 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   ## Exposure times should be a matrix: rows = plants, columns = years
   Exp_times <- matrix(Tmax, nrow = numPlants, ncol = numYears)
   ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
-  rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
+  rho_etVec <- rho_btVec <- rep(0, Tmax)
   ## Matrix of epsilon_i(t) values
-  epsilonMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
+  epsilonMatrix <- betaMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
   ## Matrix of kappa_b(t) values
   kappaMatrix <- matrix(0, nrow = Tmax, ncol = numYears)
   #### Start year loop
@@ -113,7 +113,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         #### Epsilon calculations
         ## If vectorOverwintering == TRUE and it's the start of the year, external vector infectivity and density....
         ## ...are dependent on in-field infectivity and density at the end of the previous year
-        if(vectorOverwintering & t == 1){
+        if(vectorOverwintering == TRUE & t == 1){
           # External vector infectivity equals in-field infectivity at end of previous year, unless it's the start of the first year
           kappa_e_initial <- ifelse(y == 1, 0, kappaMatrix[Tmax, y-1]) 
           ##  Immigrating vector density as damped sine wave plus a fraction of in-field vectors from previous year
@@ -141,7 +141,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
           ## Calculating in-field infectivity
           Infecteds_tm1 <- sum(Inf_times < t) # Number of Infectious plants at t-1
           Diseased_tm1 <- sum(Disease_times < t) # Number of Diseased plants at t-1
-          kappa_t <- aI*(Infecteds_tm1/numPlants) + aD*(Diseased_tm1/numPlants) # Time-dependent in-field infectivity
+          kappa_t <- (aI*Infecteds_tm1 + aD*Diseased_tm1)/numPlants # Time-dependent in-field infectivity
           ## Getting vector densities (in-field and immigrating) from previous time step
           rho_bt_tm1 <- rho_btVec[t-1]
           rho_et_tm1 <- rho_etVec[t-1]
@@ -150,7 +150,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         ## In-field vector density
         rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
         beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
-        betaVec[t] <- beta_t # Save beta_t
+        betaMatrix[iiSusceptible, t] <- beta_t*m # Save beta_ti
         ## Cumulative force of infection for iiSusceptible plant
         lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
         ## If cumulative lambda (i.e., infection pressure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
@@ -223,7 +223,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
                       rho_btVec = rho_btVec, # In-field vector density in last year
                       kappaMatrix = kappaMatrix, # Natural infectivity for every time step and year
                       epsilonMatrix = epsilonMatrix, # Epsilon for every plant and time step in last year
-                      betaVec = betaVec) # Beta for every time step in last year
+                      betaMatrix = betaMatrix) # Beta for every time step in last year
   return(resultsList)
 }
 
