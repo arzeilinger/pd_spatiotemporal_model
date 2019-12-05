@@ -2,7 +2,6 @@
 ## Based on model of Parry et al. (2014) PNAS
 
 seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = numYears, numPlantsRogued = numPlantsRogued, vectorOverwintering = TRUE){
-  
   #### parameterList is a named list specifying the values of the following parameters:
   ## alpha = Dispersal parameter
   ## eta = Inoculation rate (LAMBDA in Parry et al.)
@@ -96,7 +95,6 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
             d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
             ## Calculate the dispersal kernel based on each d and then sum over all kernels
             ## Using Neri et al. 2014 normalized exponential kernel
-            ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
             m <- m + chooseKernel(distance = d, alpha = alpha, kernelFunc = "normalized exponential")
           }
           ## Evaluate if cryptic period is exceeded
