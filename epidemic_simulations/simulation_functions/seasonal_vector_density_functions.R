@@ -106,3 +106,16 @@ processLatentInfections <- function(Exp_times, numYears, Tmax, weekVector){
     replace_na(list(numInfections = 0, cumulInfections = 0))
   return(infTimesProcessed)
 }
+
+
+##################################################################################################################
+#### Vector overwintering infectivity decay function
+
+VOdecay <- function(kappa_b, t){
+  kappa_b*exp(-t/5)
+}
+
+# kappa_b <- 0.6
+# t <- 1:52
+# test <- VOdecay(kappa_b, t)
+# qplot(t/4,test,geom="path", xlab="time", ylab="kappa_beta")

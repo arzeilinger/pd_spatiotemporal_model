@@ -179,11 +179,25 @@ All plants that remain chronically infected and have progressed to the Infectiou
 
 #### Vector overwintering
 
-At the start of each growing season (t = 1), immigrating vector density, $\rho_{\epsilon}(t)$, is equal to some fraction of in-field vectors at the end of the previous season, $\rho_{\beta}(t = Tmax)$. The fraction of overwintering vectors that survive is 1 - $\mu_{v,\epsilon}$, or the death rate of overwintering vectors. 
-
-Likewise, at the start of each growing season, the natural infectivity of immigrating vectors, $\kappa_{\epsilon}$, is set to the infectivity of in-field vectors at the end of the previous season, $\kappa_{\beta}(t = Tmax)$. We assume that infectious and non-infectious overwintering vectors die at the same rate, so the overall proportion of vectors infectious remains the same from the end of one season to the beginning of the next.
+At the start of each growing season (after the first year), the natural infectivity of immigrating vectors, $\kappa_{\epsilon}(t)$, is the sum of the baseline external vector infectivity, $\kappa_{\epsilon,0}$, and infectivity of overwintering in-field vectors, $\kappa_{\beta}(T_{w}^+)$. As the season progresses, overwintering vector infectivity decays exponentially such that by about May or June, the contribution of $\kappa_{\beta}(T_{w}^+)$ is negligible.
 
 Vector overwintering can be "turned on" or "turned off" with the logical flag "vectorOverwintering".
+
+```{r vector_overwintering_decay_function, fig.align='center', fig.cap='Decay of infectivity from overwintering vectors'}
+
+VOdecay <- function(kappa_b, t){
+  #### t is divided by 5 to produce a more gradual curve; this could modified
+  kappa_b*exp(-t/5)
+}
+
+kappa_b <- 0.6
+t <- 1:52
+test <- VOdecay(kappa_b, t)
+qplot(t/4,test,geom="path", xlab="month", ylab="Contribution from kappa_beta")
+
+```
+
+
 
 \ 
 
@@ -194,235 +208,95 @@ At the end of each growing season, we assume that some total number of sympomati
 \ 
 
 ## Running the model
+#### Setting parameter values
 
-```{r, fig.cap = "Raster map of time to disease of each plant", fig.align="center"}
+```{r global_model_parameters, echo = TRUE, include = TRUE}
 
-#### Parameter values
-## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
-alpha <- 10 # Dispersal parameter
-eta <- 0.5 # Inoculation rate (LAMBDA in Parry et al.)
-kappa_e <- 0.6 # Proportion of external vectors infectious
-aI <- 0.5 # Acquisition rate from Infectious hosts
-aD <- 0.7 # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
-muv <- 0.3 # In-field loss rate of vectors (due to both death and emigration)
-### Parameter values for vectorDensity() damped sine wave
-A <- -15 # Initial amplitude
-lambda_osc <- 0.05 # Dampening
-phi <- 0.09 # Angular frequency
-base <- 0.1 # Baseline vector density
-
-#### Winter recovery
-recoveryb <- -0.045 # Shifting the recovery curve
-
-#### Winter roguing
-numPlantsRogued <- 20 # Total number of plants that can be rogued at the end of each season
-
-#### Vector overwintering
-muv_e <- 0.5 # Loss rate of vectors overwintering
-vectorOverwintering <- TRUE
+parameterList <- list(
+  #### Parameter values
+  ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
+  alpha = 10, # Dispersal parameter
+  eta = 0.5, # Inoculation rate (LAMBDA in Parry et al.)
+  kappa_e = 0.6, # Proportion of external vectors infectious
+  aI = 0.5, # Acquisition rate from Infectious hosts
+  aD = 0.7, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = 0.3, # In-field loss rate of vectors (due to both death and emigration)
+  ### Parameter values for vectorDensity() damped sine wave
+  A = -15, # Initial amplitude
+  lambda_osc = 0.05, # Dampening
+  phi = 0.09, # Angular frequency
+  base = 0.1, # Baseline vector density
+  #### Winter recovery
+  b = -0.045, # Shifting the recovery curve
+  muv_e = 0.5 # Vector overwintering mortality
+)
 
 ## Number of time steps; assume each time step is 1 week
 Tmax <- 52
+
 ## Number of years
-numYears <- 6
+numYears <- 5
 
-#### Plant spatial coordinates
-## Total number of plants (numPlants) = nrow(Coo) = nrc*nrc
+## Number of plants on a row or column
 nrc <- 30
-Coo <- makeCoordinates(nrc)
-
-## Calculating distance to nearest field border for each plant
-# borderCoo <- rep(c(1,nrc), each = 2)
-# borderD <- apply(Coo, 1, function(x) min(sqrt((x - borderCoo)^2))+1)
-## Distance from the left border whould just be the 1st coordinate
-borderD <- Coo[,1]
-## Add 1 to the distance; plants on the border are then 1 space from the border and all other plants are shifted accordingly
-## Dispersal distances from border
-## When d = 0, normalizedKernel = Inf
-epsilonK <- chooseKernel(d = borderD, alpha = alpha, kernelFunc = "normalized exponential")
 
 
-#### Setting up empty vectors and matrices to track things
-## Assumes already created a grid of hosts
-## Calculate total number of plants and vector of plant IDs
-numPlants <- nrow(Coo)
-IDs <- 1:numPlants
+```
 
-#### Set up vectors to track state of each plants
-## Exposure times should be a matrix: rows = plants, columns = years
-Exp_times <- matrix(Tmax, nrow = numPlants, ncol = numYears)
-## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
-rho_etVec <- rho_btVec <- betaVec <- rep(0, Tmax)
-## Matrix of epsilon_i(t) values
-epsilonMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
-## Matrix of kappa_b(t) values
-kappaMatrix <- matrix(0, nrow = Tmax, ncol = numYears)
 
-#### Start year loop
-for(y in 1:numYears){
-  ####################################################################################################
-  #### Stochastic transitions among host compartments
-  ## (Re)set Infection times, Disease times (i.e., time of symptom onset)
-  Inf_times <- Disease_times <- rep(Tmax, numPlants)
-  ## (Re)set lambda values for each plant
-  lambda <- rep(0, numPlants)
-  ## (Re)set Sellke thresholds for infection
-  Q <- rexp(numPlants, rate = 1)
-  #### (re)set stochastic latent and cryptic periods
-  ## Parry et al. (2014) assumed cryptic period (I -> D) is gamma distributed
-  ## Here, we make a similar assumption for latent period (E -> I)
-  ## Assume that each period has an average of 4 weeks
-  ## a*s (mean) = 4; a:s (ratio) = 4:1; this ratio produces a humped distribution
-  ## Parameterization assumes that time step = 1 week, will need to be adjusted if time step changes
-  ## Durations of stays in Exposed compartment
-  Et <- rgamma(numPlants, shape = 4, scale = 1)
-  ## Durations of stays in Infectious compartment
-  It <- rgamma(numPlants, shape = 4, scale = 1)
-  #####################################################################################################
-  #### Nested for loops of t, Susceptible plants, and Infected plants
-  for(t in 1:Tmax){
-    ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
-    Infected_ind <- which(Inf_times < Tmax)
-    Susceptible_ind <- which(Exp_times[,y] == Tmax)
-    ## Summaries of infections and susceptibles
-    numInfections <- length(Infected_ind)
-    numSusceptibles <- length(Susceptible_ind)
-    #######################################################################################################
-    ## Loop over susceptible plants
-    for(iiSusceptible in Susceptible_ind){
-      infTimeSusceptible <- Exp_times[iiSusceptible, y]
-      CooSusceptible <- Coo[iiSusceptible,1:2]
-      ## (Re)set dispersal kernel summation to 0
-      m <- 0
-      #### Loop over infected plants to get dispersal kernel from each Infected to a given Susceptible
-      for(iInfected in Infected_ind) {
-        infTimeInfected <- Inf_times[iInfected]
-        if(infTimeSusceptible > infTimeInfected) { ## This avoids Target plant being same as Source
-          ## Calculate d for each Infected plant
-          d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
-          ## Calculate the dispersal kernel based on each d and then sum over all kernels
-          ## Using Neri et al. 2014 normalized exponential kernel
-          ## When using simple exponential kernel, m becomes too large, lambdaii > 1, and rbinom fails with error
-          m <- m + chooseKernel(distance = d, alpha = alpha, kernelFunc = "normalized exponential")
-        }
-        ## Evaluate if cryptic period is exceeded
-        ## Infectious plants become Diseased when time step t exceeds Inf_times + It
-        ## Only update Infectious plants that aren't Diseased yet
-        if(t >= (infTimeInfected + It[iInfected]) & Disease_times[iInfected] == Tmax){
-          if(Disease_times[iInfected] < t){
-            warning("Old disease time being updated")
-          }
-          Disease_times[iInfected] <- runif(1, min = t-1, max = t)
-        }
-      } # End iInfected loop
-      ###############################################################################################
-      #### Epsilon calculations
-      ## If vectorOverwintering == TRUE and it's the start of the year, external vector infectivity and density....
-      ## ...are dependent on in-field infectivity and density at the end of the previous year
-      if(vectorOverwintering & t == 1){
-        # External vector infectivity equals in-field infectivity at end of previous year, unless it's the start of the first year
-        kappa_e_initial <- ifelse(y == 1, 0, kappaMatrix[Tmax, y-1]) 
-        ##  Immigrating vector density as damped sine wave plus a fraction of in-field vectors from previous year
-        rho_et_initial <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) + (1-muv_e)*rho_btVec[Tmax] 
-        ## Save rho_et
-        rho_etVec[t] <- rho_et_initial
-        epsilonti <- eta*kappa_e_initial*rho_et_initial*epsilonK[iiSusceptible]
-      } else {
-        ## Immigrating vector density as damped sine wave
-        rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t)
-        ## Save rho_et
-        rho_etVec[t] <- rho_et
-        epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
-      }
-      ## Save epsilonti
-      epsilonMatrix[iiSusceptible, t] <- epsilonti
-      ############################################################################################################
-      #### Beta calculations
-      ## if() statement for start of the year
-      if(t == 1){
-        rho_bt_tm1 <- 0 # Initial in-field density from previous time step
-        rho_et_tm1 <- 0 # Initial immigrating density from previous time step
-        kappa_t <- 0 # Initial in-field infectivity
-        } else {
-        ## Calculating in-field infectivity
-        Infecteds_tm1 <- sum(Inf_times < t) # Number of Infectious plants at t-1
-        Diseased_tm1 <- sum(Disease_times < t) # Number of Diseased plants at t-1
-        kappa_t <- aI*(Infecteds_tm1/numPlants) + aD*(Diseased_tm1/numPlants) # Time-dependent in-field infectivity
-        ## Getting vector densities (in-field and immigrating) from previous time step
-        rho_bt_tm1 <- rho_btVec[t-1]
-        rho_et_tm1 <- rho_etVec[t-1]
-      }
-      kappaMatrix[t,y] <- kappa_t # Save kappa(t)
-      ## In-field vector density
-      rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
-      beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
-      betaVec[t] <- beta_t # Save beta_t
-      ## Cumulative force of infection for iiSusceptible plant
-      lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
-      ## If cumulative lambda (i.e., infection pressure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
-      ## then receives an infection time in range [t - 1, t]
-      if(lambda[iiSusceptible] >= Q[iiSusceptible]){
-        Exp_times[iiSusceptible, y] <- runif(1, min = t-1, max = t)
-      }
-    } # End iiSusceptible loop
-    ########################################################################################
-    #### Moving from Exposed to Infectious compartments
-    ## Select indices of plants that are in Exposed compartment (but not Infectious compartment yet)
-    Exposed_ind <- which(Exp_times[,y] < Tmax & Inf_times == Tmax)
-    ## Evaluate if latent period is exceeded
-    ## Exposed plants become Infectious when time step t exceeds Exp_times + Et 
-    for(iExposed in Exposed_ind){
-      if(Inf_times[iExposed] < t){
-        warning("Old infection time incorrectly being updated")
-      }
-      if(t >= Exp_times[iExposed, y] + Et[iExposed]){
-        Inf_times[iExposed] <- runif(1, min = t-1, max = t)
-      }
-    } # End iExposed loop
-  } # End t loop
-  ###########################################################################################
-  #### Winter processes
-  ###########################################################################################
-  ## If simulation is in it's last year, skip winter processes
-  if(y < numYears){
-    #### Host recovery
-    ## Base host recovery on Exposure time, rather than Infection time
-    ## Get all plants that became Exposed; differs from Exposed_ind above
-    expIndices <- which(Exp_times[,y] < Tmax)
-    recoveryStatus <- probRecovery <- rep(0, length(numPlants))
-    for(iExposed in expIndices){
-      ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
-      probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7, b = recoveryb)
-      recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
-      ## Make sure recoveryStatus is either 0 or 1
-      if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){
-        warning("Something is wrong with recoveryStatus")
-      }
-      ## For chronic infected plants, set Exp_times for next year to 0
-      if(recoveryStatus[iExposed] == 0){
-        Exp_times[iExposed, y+1] <- 0
-      }
-    } # End Recovery iExposed loop 
-    ## Check that recovery probability calculations are working correctly
-    # recoveryCheck <- cbind(Exp_times[expIndices, c(y, y+1)], probRecovery[expIndices], recoveryStatus[expIndices])
-    ###########################################################################################
-    #### Roguing (removal) and replanting of diseased hosts
-    ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
-    ## ... and that all Diseased plants have equal probability of removal.
-    ## Assume that managers have are limited by the total number of plants they can rogue and replant, rather than a fraction.
-    diseaseIndices <- which(Disease_times < Tmax)
-    if(length(diseaseIndices) <= numPlantsRogued){
-      ## If all diseased plants are to be rogued
-      Exp_times[diseaseIndices, y+1] <- Tmax
-    } else {
-      ## Get random sub-sample of plants to rogue and replace
-      roguedPlantIndices <- sample(diseaseIndices, size = numPlantsRogued, replace = FALSE)
-      ## Reset Exposed times to Tmax, making them Susceptible again
-      Exp_times[roguedPlantIndices, y+1] <- Tmax
-    } # End Roguing 
-  } # End Winter if() statement
-} # End y loop
+## Running the model
 
+```{r running_the_model}
+
+## Number of simulations for each scenario
+nruns <- 1
+
+#### Important values for processing simulations
+numPlants <- nrc^2
+timeSteps <- 1:(Tmax*numYears)
+## Vector of week number at the end of years, to produce vertical lines on ggplot
+endOfYears <- data.frame(timeStep = Tmax*1:numYears)
+## Vector of each time step (weeks)
+weekVector <- data.frame(timeStep = timeSteps)
+
+## Create empty lists for simulation results
+simList <- blRatioList <- vector("list", nruns)
+
+#### Model run with vector overwintering and roguing
+#### Data frames of the different outputs from the simulations
+DiseaseData1 <- matrix(NA, nrow = numPlants, ncol = nruns)
+infectionTimesData1 <- kappaData1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+
+for(i in 1:nruns){
+  simList[[i]] <- seasonalPDmodel(parameterList,
+                                  nrc = nrc,
+                                  Tmax = Tmax,
+                                  numYears = numYears,
+                                  numPlantsRogued = 0, # No roguing
+                                  vectorOverwintering = TRUE)
+  #saveRDS(simList, file = "output/epidemic_simulation_test_results_list.rds")
+  # simList <- readRDS("output/epidemic_simulation_test_results_list.rds")
+  #### Processing simulation results
+  DiseaseData1[,i] <- simList[[i]]$Disease_times
+  kappaData1[,i] <- c(simList[[i]]$kappaMatrix)
+  #### Extracting and processing Exp_times results from each run
+  infTimesProcessed <- processLatentInfections(simList[[i]]$Exp_times, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  infectionTimesData1[,i] <- infTimesProcessed$cumulInfections
+  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+  betaMatrix <- simList[[i]]$betaMatrix
+  epsilonMatrix <- simList[[i]]$epsilonMatrix
+  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+  blRatioList[[i]] <- as.data.frame(t(colMeans(blRatio)))
+}
+
+
+```
+
+\ 
+
+```{r disease_map, fig.cap = "Raster map of time to disease of each plant", fig.align="center"}
 #### Produce raster with infection times as values
 ## Get raster dimensions from Coo
 ## Coo[,1] = rows or y coord
@@ -440,7 +314,6 @@ rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
                       ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
                       vals = Disease_times)
 plot(rasterTimes, main = "Week of year plant became diseased")
-
 
 ```
 
@@ -633,18 +506,18 @@ ggplot(data = plotKappa, aes(x = week, y = kappa)) +
 ```
 
 
-#### Dynamics of external and secondary infection rates
+#### Relative importance of vine-to-vine spread and external infection rates over the season
 
-```{r, fig.align="center", fig.cap="Mean external infection rates over time"}
+```{r beta_lambda_ratio, fig.align="center", fig.cap="Beta:Lambda ratio, for the last year only, averaged over plants and simulations"}
 
-#### Average external infection rate (epsilon) over susceptible plants at each time step
-plotEpsilon <- data.frame(meanEpsilon = colMeans(epsilonMatrix, na.rm = TRUE),
-                          week = seq(1, 52, length.out = Tmax))
+plotBL <- data.frame(week = 1:Tmax,
+                     blRatio = colMeans(rbindlist(blRatioList)))
 
-ggplot(data = plotEpsilon, aes(x = week, y = meanEpsilon)) +
-  geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
-  scale_y_continuous(name = "Mean epsilon") +
+ggplot(data = plotBL, aes(x = week, y = blRatio)) +
+  geom_path(colour = "black", lwd = 1) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Beta/(Beta+Epsilon)") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -652,32 +525,10 @@ ggplot(data = plotEpsilon, aes(x = week, y = meanEpsilon)) +
         panel.border = element_rect(colour = "black"),
         panel.background = element_blank(),
         legend.position = "none") 
-
 ```
 
 \ 
 
-```{r, fig.align="center", fig.cap="Secondary infection rate over time"}
-
-#### Beta values for each time step
-plotBeta <- data.frame(betaVec,
-                       week = seq(1,52, length.out = length(betaVec)))
-
-ggplot(data = plotBeta, aes(x = week, y = betaVec)) +
-  geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
-  scale_y_continuous(name = "Beta") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
-\ 
 
 Next steps:  
 1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  

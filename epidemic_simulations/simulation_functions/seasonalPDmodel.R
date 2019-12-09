@@ -5,7 +5,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   #### parameterList is a named list specifying the values of the following parameters:
   ## alpha = Dispersal parameter
   ## eta = Inoculation rate (LAMBDA in Parry et al.)
-  ## kappa_e = Proportion of external vectors infectious
+  ## kappa_e0 = Baseline proportion of external vectors infectious
   ## aI = Acquisition rate from Infectious hosts
   ## aD = Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
   ## muv In-field loss rate of vectors (due to both death and emigration)
@@ -48,7 +48,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   rho_etVec <- rho_btVec <- rep(0, Tmax)
   ## Matrix of epsilon_i(t) values
   epsilonMatrix <- betaMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
-  ## Matrix of kappa_b(t) values
+  ## Matrix of total kappa(t) values (kappa_b + kappa_e)
   kappaMatrix <- matrix(0, nrow = Tmax, ncol = numYears)
   #### Start year loop
   for(y in 1:numYears){
@@ -71,6 +71,8 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
     Et <- rgamma(numPlants, shape = 4, scale = 1)
     ## Durations of stays in Infectious compartment
     It <- rgamma(numPlants, shape = 4, scale = 1)
+    ## In-field vector infectivity from previous year
+    kappa_b_ym1 <- kappaMatrix[Tmax, y-1]
     #####################################################################################################
     #### Nested for loops of t, Susceptible plants, and Infected plants
     for(t in 1:Tmax){
@@ -111,43 +113,41 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         #### Epsilon calculations
         ## If vectorOverwintering == TRUE and it's the start of the year, external vector infectivity and density....
         ## ...are dependent on in-field infectivity and density at the end of the previous year
-        if(vectorOverwintering == TRUE & t == 1){
-          # External vector infectivity equals in-field infectivity at end of previous year, unless it's the start of the first year
-          kappa_e_initial <- ifelse(y == 1, 0, kappaMatrix[Tmax, y-1]) 
-          ##  Immigrating vector density as damped sine wave plus a fraction of in-field vectors from previous year
-          rho_et_initial <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t) + (1-muv_e)*rho_btVec[Tmax] 
-          ## Save rho_et
-          rho_etVec[t] <- rho_et_initial
-          epsilonti <- eta*kappa_e_initial*rho_et_initial*epsilonK[iiSusceptible]
+        if(vectorOverwintering == TRUE & y > 1){
+          ## For each year after the first ...
+          ## ... in-field infectivity at end of previous year contributes to external infectivity but decays exponentially as season progresses
+          kappa_e <- kappa_e0 + VOdecay(kappa_b_ym1, t)
         } else {
-          ## Immigrating vector density as damped sine wave
-          rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t)
-          ## Save rho_et
-          rho_etVec[t] <- rho_et
-          epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
+          kappa_e <- kappa_e0
         }
+        ## Immigrating vector density as damped sine wave
+        rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t)
+        ## Save rho_et
+        rho_etVec[t] <- rho_et
+        ## Calculate epsilonti
+        epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
         ## Save epsilonti
         epsilonMatrix[iiSusceptible, t] <- epsilonti
         ############################################################################################################
         #### Beta calculations
         ## if() statement for start of the year
         if(t == 1){
-          rho_bt_tm1 <- 0 # Initial in-field density from previous time step
-          rho_et_tm1 <- 0 # Initial immigrating density from previous time step
-          kappa_t <- 0 # Initial in-field infectivity
+          rho_bt_tm1 <- 0 # Initial in-field density 
+          rho_et_tm1 <- 0 # Initial immigrating density 
+          kappa_b <- 0 # Initial in-field infectivity
         } else {
           ## Calculating in-field infectivity
           Infecteds_tm1 <- sum(Inf_times < t) # Number of Infectious plants at t-1
           Diseased_tm1 <- sum(Disease_times < t) # Number of Diseased plants at t-1
-          kappa_t <- (aI*Infecteds_tm1 + aD*Diseased_tm1)/numPlants # Time-dependent in-field infectivity
+          kappa_b <- (aI*Infecteds_tm1 + aD*Diseased_tm1)/numPlants # Time-dependent in-field infectivity
           ## Getting vector densities (in-field and immigrating) from previous time step
           rho_bt_tm1 <- rho_btVec[t-1]
           rho_et_tm1 <- rho_etVec[t-1]
         }
-        kappaMatrix[t,y] <- kappa_t # Save kappa(t)
+        kappaMatrix[t,y] <- kappa_b + kappa_e # Save kappa_b + kappa_e
         ## In-field vector density
         rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
-        beta_t <- eta*kappa_t*rho_btVec[t] # Calculate beta_t
+        beta_t <- eta*kappa_b*rho_btVec[t] # Calculate beta_t
         betaMatrix[iiSusceptible, t] <- beta_t*m # Save beta_ti
         ## Cumulative force of infection for iiSusceptible plant
         lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
