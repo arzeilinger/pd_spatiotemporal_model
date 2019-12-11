@@ -3,24 +3,42 @@ title: "Seasonal Pierce's Disease model"
 author: "Adam Zeiliinger"
 date: "11/6/2019"
 output:
-  pdf_document: default
   html_document: default
 ---
+
+## What's new 2019-12-11
+
+\ 
+
+Here's a new model update. I think I've covered all the pieces that we discussed last week.   
+1. Time spent in the Exposed and Infectious compartments are dependent on the time of the year that each plant enters that compartment. The latent period (time spent in Exposed compartment) is considerably longer than time spent in the Infectious compartment.  
+2. Overwintering vector infectivity (carryover) decays over the early season. Vector density does not carry over from previous year.  
+3. Simulations are include vector overwintering and no roguing, no other scenarios are considered here.  
+4. I plotted dynamics of E, I, and D compartments, total infectivity (in-field + immigrating), and beta:lambda ratio (i.e., beta/(beta + epsilon)).
+
+\ 
+
+Overall infection prevalence is much lower than the previous runs. I think this makes sense because the time plants spend in the Exposed compartment is much longer now, and baseline immigrating vector infectivity is lower. The dynamics of vector infectivity don't look great and don't vary much across the season, but the overall shape is about right.
+
 
 ```{r set-options, echo=FALSE, cache=FALSE}
 options(width = 120)
 ```
 
 ```{r setup, include=FALSE}
-my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table")
+my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table", "cowplot")
 lapply(my.packages, require, character.only = TRUE)
 
-#### Source additional functions
-## Vector density function
-#source("R_functions/seasonal_vector_density_functions.R")
+#### Source Seasonal PD model function
+source("epidemic_simulations/simulation_functions/seasonalPDmodel.R")
+
+#### Source child functions, required to run seasonalPDModel()
+## seasonal_vector_density_functions also includes hostRecovery() function
+source("epidemic_simulations/simulation_functions/seasonal_vector_density_functions.R")
 ## Dispersal kernel functions, also includes makeCoordinates() function
-source("R_functions/dispersal_kernel_functions.R")
-source("R_functions/factor2numeric.R")
+source("epidemic_simulations/simulation_functions/dispersal_kernel_functions.R")
+source("epidemic_simulations/simulation_functions/factor2numeric.R")
+
 ```
 
 ## Host compartments
@@ -35,12 +53,11 @@ At its core, we are modeling the instantaneous force of infection of susceptible
 
 $$
 \begin{align}
-\lambda_i(t) &= \beta \sum_{j \in I(t)} K(d_{i,j},\alpha) + \epsilon \\
-\ \\
-\text{Dispersal kernel function is a normalized negative exponential} \\
-\ K(d,\alpha) &= \frac{1}{2 \pi d \alpha} \cdot \exp(-\frac{d}{\alpha}) \\
+\lambda_i(t) &= \beta_{i}(t) + \epsilon_{i}(t) \\
 \end{align}
 $$
+
+\ 
 
 ### Transitions among compartments are stochastic
 #### Sellke threshold construction
@@ -49,21 +66,69 @@ Assume that each susceptible plant $i$ has a threshold of resistance $Q_{i}$ whi
 $$A_i(t)=\int_{0}^{t}\lambda_{i}(u)du$$
 Then plant $i$ becomes latently infected at time $t$ when $Q_{i}=A_{i}(t)$. In this way, we relate the force of infection upon a plant to its infection status in a stochastic manner (Adrakey et al. 2017; Sellke 1983).
 
-#### Infectious and Diseased compartment transitions
-The transition from Exposed to Infectious is determined by a plant-specific latent period which is assumed to take the form of a gamma distribution, $t_{i}^I|t_{i}^E \sim gamma(\lambda_{EI}, \nu_{EI})$. Likewise, the transition from Infectious to Diseased is treated the same: $t_{i}^D|t_{i}^I \sim gamma(\lambda_{ID}, \nu_{ID})$. The values for the shape parameters were both set to $\lambda_{EI}, \lambda_{ID} = 4$, while the values of the scale parameters were both set to $\nu_{EI}, \nu_{ID} = 1$. This produces a humped shaped distribution with a mean value of 4 weeks for each time period, meaning that, on average, plants move from Exposed to Diseased in 8 weeks.
+\ 
 
-```{r, fig.align='center', fig.cap='Gamma distribution for latent period and post-latent incubation period'}
+#### Infectious and Diseased compartment transitions
+
+The transition from Exposed to Infectious depends on what time in the growing season a plant becomes Exposed. The time a plant spends in the Exposed compartment takes a quadratic or "U shaped" form, with long latent periods when first Exposed at the beginning and end of the year, and shorter latent periods in the summer months. I add a small amount of (gamma distributed) noise to the durations (i.e., latent periods). The transition from Infectious to Diseased works in the same way, except that the minimum and maximum durations are smaller.
+
+
+```{r, fig.align='center', fig.cap='Relationship between time of season plant became moved into Exposed (A) or Infectious (B) and the duration of time spent in the compartment', fig.height=14}
 
 ## Durations of stays in Exposed compartment
-Exposed_time <- rgamma(900, shape = 4, scale = 1)
-hist(Exposed_time)
+Exposed_noise <- rgamma(900, shape = 2, scale = 1)
+#hist(Exposed_noise)
+#mean(Exposed_noise)
+
+Inf_noise <- rgamma(900, shape = 1, scale = 0.5)
+#qplot(Inf_noise, geom = "histogram", binwidth = 0.25)
+#mean(Inf_noise)
+
+testTimes <- runif(900, min = 1, max = 52)
+Exposed_time <- transitionPeriod(a = 8, c = 0.02, t = testTimes) + Exposed_noise
+TransitionData <- data.frame(testTimes = testTimes,
+                             Exposed_time = Exposed_time,
+                             Infectious_time = (transitionPeriod(a = 2, c = 0.002, t = testTimes) + Inf_noise))
+
+EtDurationsPlot <- ggplot(data = TransitionData, aes(x = testTimes/4, y = Exposed_time)) +
+  geom_point() +
+  scale_x_continuous(name = "Month that plant became Exposed (infected)") +
+   scale_y_continuous(name = "Time spent in Exposed compartment (weeks)") +
+   theme_bw(base_size=12) +
+   theme(axis.line = element_line(colour = "black"),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         panel.border = element_rect(colour = "black"),
+         panel.background = element_blank(),
+         legend.position = "none") 
+#EtDurationsPlot
+
+## Durations of stays in Infectious compartment
+ItDurationsPlot <- ggplot(data = TransitionData, aes(x = testTimes/4, y = Infectious_time)) +
+  geom_point() +
+  scale_x_continuous(name = "Month that plant became Infectious") +
+   scale_y_continuous(name = "Time spent in Infectious compartment (weeks)") +
+   theme_bw(base_size=12) +
+   theme(axis.line = element_line(colour = "black"),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         panel.border = element_rect(colour = "black"),
+         panel.background = element_blank(),
+         legend.position = "none") 
+
+plot_grid(EtDurationsPlot, ItDurationsPlot,
+          nrow = 2, ncol = 1, label_x = 0.07, label_y = 0.95,
+          labels = c("A", "B"))
 
 ```
 
+\ 
 
 ## Incorporating vector density and infectivity
 
 Assume that the external infection rate $\epsilon$ and secondary infection rate $\beta$ are time-dependent functions of vector density and infectivity. This is inspired by Parry et al. (2014), who used a similar model to Adrakey et al., but deviates from their exact formulation.
+
+\ 
 
 #### External infection rate:
 
@@ -80,10 +145,12 @@ $$
 \right. \\
 \text{with} \\
 \tilde{\rho}(t) &= A \cdot \exp(-\lambda t) \cdot \sin(\phi \pi t) \\
+\text{Dispersal function:} \\
+\ K(d,\alpha) &= \frac{1}{2 \pi d \alpha} \cdot \exp(-\frac{d}{\alpha}) \\
 \end{align}
 $$
 
-Here, $\eta$ is the vector inoculation rate, $\kappa$ is the proportion of external vectors that are infectious, $K(D_{i},\alpha)$ is the immigrant dispersal kernel function, and $\rho_{\epsilon}(t)$ is the average density (per plant) of immigrating external vectors from border vegetation. The immigrant dispersal kernel function could take an equivalent form as the within-field dispersal function $K(d_{i,j},\alpha)$ or could take a different form. The important difference is that whereas $d_{i,j}$ is the distance from susceptible plant $i$ and infected plant $j$, the distance $D_{i}$ is the distance from plant $i$ to the nearest border of the field. This form assumes that immgrating vectors are more likely to land on a plant near the field border than further inside the field.
+Here, $\eta$ is the vector inoculation rate, $\kappa$ is the proportion of external vectors that are infectious, $K(D_{i},\alpha)$ is the immigrant dispersal kernel function, and $\rho_{\epsilon}(t)$ is the average density (per plant) of immigrating external vectors from border vegetation. The immigrant dispersal kernel function currently takes a normalized exponential form. This was the best disperal function in the analysis of Neri et al. (2014), but others could be used. The distance $D_{i}$ is the distance from plant $i$ to the nearest border of the field, and $\alpha$ is the dispersal scaling parameter. This form assumes that immgrating vectors are more likely to land on a plant near the field border than further inside the field.
 
 ```{r}
 
@@ -131,14 +198,15 @@ qplot(timeVec, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom 
 $$
 \begin{align}
 \text{Time-dependent secondary infection rate} \\
-\beta(t) &= \eta \kappa_{\beta}(t) \cdot \rho_{\beta}(t) \\
+\beta(t) &= \eta \kappa_{\beta}(t) \cdot \rho_{\beta}(t) \cdot \sum_{j \in I(t)} K(d_{i,j},\alpha)\\
 \text{where} \\
 \kappa_{\beta}(t) &= \frac{a_{I}I(t-1) + a_{D}D(t-1)}{N} \\
 \rho_{\beta}(t) &= (1 - \mu_{v}) \cdot (\rho_{\beta}(t-1) + \rho_{\epsilon}(t-1)) \\
+\ K(d_{i,j},\alpha) &= \frac{1}{2 \pi d \alpha} \cdot \exp(-\frac{d}{\alpha}) \\
 \end{align}
 $$
 
-Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of Infectious grapevines at the previous time step $\frac{I(t-1)}{N}$, the density of Diseased grapevines at the previous time step $\frac{D(t-1)}{N}$, and compartment-specific acquisition rates, $a_{I}, a_{D}$. The different acquisition rates imply that Diseased grapevines will have greater Xylella populations than Infectious grapevines, so acquisition rates from Diseased grapevines should be greater. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible.
+Here, $\eta$ is the same inoculation rate as above. But now $\kappa_{\beta}(t)$ is the time-dependent proportion of in-field vectors infectious, and is a function of the density of Infectious grapevines at the previous time step $\frac{I(t-1)}{N}$, the density of Diseased grapevines at the previous time step $\frac{D(t-1)}{N}$, and compartment-specific acquisition rates, $a_{I}, a_{D}$. The different acquisition rates imply that Diseased grapevines will have greater Xylella populations than Infectious grapevines, so acquisition rates from Diseased grapevines should be greater. The density of in-field vectors, $\rho_{\beta}(t)$, is a function of the density of in-field vectors at the previous time step, $\rho_{\beta}(t-1)$, the density of immigrating vectors at the previous time step, $\rho_{\epsilon}(t-1)$, and the loss rate of vectors, $\mu_{v}$, due to death and emmigration. This assumes that reproduction in field is negligible. The dispersal function $K(d_{i,j},\alpha)$ takes the same form as the immigrating dispersal function but here $d{i,j}$ is the distance from susceptible plant $i$ and infected plant $j$, which is then summed up over all $j$ infected plants.
 
 \ 
 
@@ -217,7 +285,7 @@ parameterList <- list(
   ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
   alpha = 10, # Dispersal parameter
   eta = 0.5, # Inoculation rate (LAMBDA in Parry et al.)
-  kappa_e = 0.6, # Proportion of external vectors infectious
+  kappa_e0 = 0.3, # Proportion of external vectors infectious
   aI = 0.5, # Acquisition rate from Infectious hosts
   aD = 0.7, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
   muv = 0.3, # In-field loss rate of vectors (due to both death and emigration)
@@ -244,12 +312,12 @@ nrc <- 30
 ```
 
 
-## Running the model
+#### Multiple simulation runs
 
 ```{r running_the_model}
 
 ## Number of simulations for each scenario
-nruns <- 1
+nruns <- 20
 
 #### Important values for processing simulations
 numPlants <- nrc^2
@@ -264,25 +332,35 @@ simList <- blRatioList <- vector("list", nruns)
 
 #### Model run with vector overwintering and roguing
 #### Data frames of the different outputs from the simulations
-DiseaseData1 <- matrix(NA, nrow = numPlants, ncol = nruns)
-infectionTimesData1 <- kappaData1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+ExposureTimesData1 <- InfectiousTimesData1 <- DiseaseTimesData1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+kappa_b_Data1 <- kappa_e_Data1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  simList[[i]] <- seasonalPDmodel(parameterList,
-                                  nrc = nrc,
-                                  Tmax = Tmax,
-                                  numYears = numYears,
-                                  numPlantsRogued = 0, # No roguing
-                                  vectorOverwintering = TRUE)
-  #saveRDS(simList, file = "output/epidemic_simulation_test_results_list.rds")
-  # simList <- readRDS("output/epidemic_simulation_test_results_list.rds")
+  #print(paste("On simulation run ", i, sep = ""))
+  # simList[[i]] <- seasonalPDmodel(parameterList,
+  #                                 nrc = nrc,
+  #                                 Tmax = Tmax,
+  #                                 numYears = numYears,
+  #                                 numPlantsRogued = 0, # No roguing
+  #                                 vectorOverwintering = TRUE,
+  #                                 verbose = TRUE)
+  # saveRDS(simList, file = "output/epidemic_simulation_test_results_list.rds")
+  simList <- readRDS("output/epidemic_simulation_test_results_list.rds")
   #### Processing simulation results
-  DiseaseData1[,i] <- simList[[i]]$Disease_times
-  kappaData1[,i] <- c(simList[[i]]$kappaMatrix)
-  #### Extracting and processing Exp_times results from each run
-  infTimesProcessed <- processLatentInfections(simList[[i]]$Exp_times, numYears, Tmax, weekVector)
+  kappa_b_Data1[,i] <- c(simList[[i]]$kappa_b_matrix)
+  kappa_e_Data1[,i] <- c(simList[[i]]$kappa_e_matrix)
+  #### Extracting and processing ExposureMatrix results from each run
+  ExpTimesProcessed <- processInfectionTimes(simList[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
   ## Save just the cumulative infections times from each simulation, for now
-  infectionTimesData1[,i] <- infTimesProcessed$cumulInfections
+  ExposureTimesData1[,i] <- ExpTimesProcessed$cumulInfections
+  #### Extracting and processing InfectiousMatrix results from each run
+  InfTimesProcessed <- processInfectionTimes(simList[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  InfectiousTimesData1[,i] <- InfTimesProcessed$cumulInfections
+  #### Extracting and processing DiseaseMatrix results from each run
+  DiseaseTimesProcessed <- processInfectionTimes(simList[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  DiseaseTimesData1[,i] <- DiseaseTimesProcessed$cumulInfections
   ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
   betaMatrix <- simList[[i]]$betaMatrix
   epsilonMatrix <- simList[[i]]$epsilonMatrix
@@ -296,7 +374,18 @@ for(i in 1:nruns){
 
 \ 
 
+The simulation was run for `r numYears` years, with a time step of 1 week (i.e., 52 time steps), on a vineyard of `r nrc` x `r nrc` = `r nrc*nrc` plants. The simulation was repeated `r nruns` times. 
+
+In the figure below, green squares are healthy plants at the end of the simulation, with the other colors indicating the time (week within the season) of that each plants became diseased: lighter colors indicate earlier disease times. I also set immigration of vectors from only 1 border. 
+
+\ 
+
 ```{r disease_map, fig.cap = "Raster map of time to disease of each plant", fig.align="center"}
+#### Pick a simulation at random
+randsim <- sample(1:nruns, 1)
+Coo <- simList[[randsim]]$Coo
+Disease_times <- rowMeans(simList[[randsim]]$DiseaseMatrix)
+
 #### Produce raster with infection times as values
 ## Get raster dimensions from Coo
 ## Coo[,1] = rows or y coord
@@ -313,61 +402,130 @@ CooXmx <- max(CooColumns)
 rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
                       ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
                       vals = Disease_times)
-plot(rasterTimes, main = "Week of year plant became diseased")
+plot(rasterTimes, main = "Average week of year plant became diseased")
 
 ```
 
 \ 
 
-The simulation above was run for `r numYears` years, with a time step of 1 week (i.e., 52 time steps), on a vineyard of `r nrc` x `r nrc` = `r nrc*nrc` plants. In the figure above, green squares are healthy plants at the end of the simulation, with the other colors indicating the time (week within the season) of that each plants became diseased: lighter colors indicate earlier disease times. I also set immigration of vectors from only 1 border. 
+#### Infection dynamics (of each class) over time
 
-\ 
 
-The figure below shows the number of cumulative infections over time for all six years
+```{r, fig.cap = "Cumulative number of latent infections (A), asymptomatic infections (B), and diseased plants (C). Vertical dashed lines indicate the end of each year", fig.align = "center", fig.height=21}
 
-```{r, fig.cap = "Cumulative number of infections per week. Vertical dashed lines indicate the end of each year", fig.align = "center"}
+#### Cumulative latent infection times (Exposed compartment)
+#### Calculate mean exposure times across simulations
+meanTimes <- data.frame(timeStep = timeSteps,
+                        meanExposedPlants = rowMeans(ExposureTimesData1),
+                        meanInfectiousPlants = rowMeans(InfectiousTimesData1),
+                        meanDiseasedPlants = rowMeans(DiseaseTimesData1))
 
-## Vector of week number at the end of years, to produce vertical lines on ggplot
-endOfYears <- data.frame(timeStep = Tmax*1:numYears)
+#### Final percentage of plants infected
+percInfected <- 100*meanTimes[meanTimes$timeStep == max(meanTimes$timeStep), "meanExposedPlants"]/numPlants
 
-## Vector of each time step (weeks)
-weekVector <- data.frame(timeStep = 1:(Tmax*numYears))
+#### Gather simulations for plotting each one as a separate line
+plotSimsExposures <- ExposureTimesData1 %>% as.data.frame() %>%
+  mutate(timeStep = timeSteps) %>%
+  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
 
-## Round up infection times
-finalInfectionTimes <- ceiling(Exp_times)
+plotSimsInfectious <- InfectiousTimesData1 %>% as.data.frame() %>%
+  mutate(timeStep = timeSteps) %>%
+  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
 
-infectionTimesList <- vector("list", numYears)
-for(y in 1:numYears){
-  times.y <- finalInfectionTimes[,y]
-  times.y <- times.y[times.y < Tmax]
-  infCounts <- rle(sort(times.y))
-  infectionTimesList[[y]] <- data.frame(timeStep = infCounts$values+(Tmax*(y-1)), 
-                                        numInfections = infCounts$lengths,
-                                        cumulInfections = cumsum(infCounts$lengths))
-  ## Bug: 
-  ## If there are no chronic infections, the number of cumulative infections doesn't go to zero at the start of the next year
-  ## instead, cumulative infections go to zero at the time of the next infection.
-  ## if() statement to fix the bug:
-  if(all(Exp_times[,y] != 0)){
-    infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
-  }
-}
+plotSimsDiseased <- DiseaseTimesData1 %>% as.data.frame() %>%
+  mutate(timeStep = timeSteps) %>%
+  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
 
-infectionTimes <- infectionTimesList %>% rbindlist() %>% as.data.frame() %>%
-  ## Expand data set so that each time step is included explicitly
-  right_join(., weekVector, by = "timeStep") %>%
-  fill(cumulInfections) %>% # Replace NAs with previous non-NA value
-  ## Replace NAs with 0
-  ## Can replace NAs in cumulInfections with 0 now because these are just at the start of the time series
-  replace_na(list(numInfections = 0, cumulInfections = 0))
 
-infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfections)) +
-  geom_path(lwd = 1) +
+#### Build panels
+ExpDynamicsPlot <- ggplot(data = plotSimsExposures, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+  geom_path(data = meanTimes, aes(x = timeStep, y = meanExposedPlants), colour = "black", lwd = 2) +
   ## Add vertical lines indicating the end of each growing season/year
   geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Cumulative number of latent infections",
-                     sec.axis = sec_axis(~./numPlants, name = "Proportion of plants with latent infections")) +
+  scale_y_continuous(name = "Mean cumulative number",
+                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants")) +
+  ggtitle("Latent infection (Exposed) times") +
+  theme_bw(base_size=10) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none")
+ExpPlotAll <- ExpDynamicsPlot + scale_x_continuous(name = "")
+
+
+InfDynamicsPlot <- ggplot(data = plotSimsInfectious, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+  geom_path(data = meanTimes, aes(x = timeStep, y = meanInfectiousPlants), colour = "black", lwd = 2) +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_y_continuous(name = "Mean cumulative number",
+                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants")) +
+  ggtitle("Asymptomatic Infectious times") +
+  theme_bw(base_size=12) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none")
+InfPlotAll <- InfDynamicsPlot + scale_x_continuous(name = "")
+
+#InfDynamicsPlot
+
+DiseaseDynamicsPlot <- ggplot(data = plotSimsDiseased, aes(x = timeStep, y = cumulInfections)) +
+  geom_path(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+  geom_path(data = meanTimes, aes(x = timeStep, y = meanDiseasedPlants), colour = "black", lwd = 2) +
+  ## Add vertical lines indicating the end of each growing season/year
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_y_continuous(name = "Mean cumulative number",
+                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants")) +
+  ggtitle("Disease times") +
+  theme_bw(base_size=12) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none")
+DiseasePlotAll <- DiseaseDynamicsPlot + scale_x_continuous(name = "Weeks")
+
+#DiseaseDynamicsPlot
+
+## Build multi-panel plot
+plot_grid(ExpPlotAll, InfPlotAll, DiseasePlotAll,
+          ncol = 1, nrow = 3, label_x = 0.07, label_y = 0.95, 
+          labels = c("A", "B", "C"), label_size = 15)
+
+```
+
+\ 
+
+#### Dynamics of vector natural infectivity
+
+The figure below shows the dynamics of vector infectivity (in-field + immigrating) over all years. Note the small y-axis scale.
+
+```{r vector_infectivity, fig.align="center", fig.cap="Total vector infectivity", echo = FALSE}
+
+#### Kappa values for each time step
+kappaData <- data.frame(timeStep = timeSteps,
+                        kappa_b = rowMeans(kappa_b_Data1),
+                        kappa_e = rowMeans(kappa_e_Data1),
+                        kappa = rowMeans(kappa_b_Data1) + rowMeans(kappa_e_Data1))
+
+#### Gather simulations for plotting each one as a separate line
+plotKappaSims <- kappa_b_Data1 + kappa_e_Data1 %>% as.data.frame() %>%
+  mutate(timeStep = timeSteps) #%>%
+plotKappaSims <- plotKappaSims %>% pivot_longer(starts_with("V"), names_to = "simulation", values_to = "kappa", names_prefix = "V")
+
+
+kappaPlot <- ggplot(data = plotKappaSims, aes(x = timeStep, y = kappa)) +
+  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+  geom_path(data = kappaData, aes(x = timeStep, y = kappa), colour = "black", lwd = 2) +
+  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+  scale_y_continuous(name = "Proportion of in-field vectors infectious") + #, limits = c(0,1)) +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -375,43 +533,25 @@ infDynamicsPlot <- ggplot(data = infectionTimes, aes(x = timeStep, y = cumulInfe
         panel.border = element_rect(colour = "black"),
         panel.background = element_blank(),
         legend.position = "none") 
+kappaPlot + scale_x_continuous(name = "Weeks")
 
-# ggsave("results/simulation_results/infection_dynamics_without_rouguing.jpg", plot = infDynamicsPlot,
-#        width = 7, height = 7, units = "in")
-
-infDynamicsPlot
 
 ```
 
 \ 
 
-#### Plot dynamics of in-field vector density
+#### Vector infectivity detail
 
-```{r, fig.align="center", fig.cap="In-field vector density over time"}
+The figure below shows the dynamics of vector infectivity (in-field + immigrating) for the year 3 only. Note the small y-axis scale.
 
-#### Beta values for each time step
-plotRho_bt <- data.frame(rho_btVec,
-                         week = 1:length(rho_btVec))
+```{r vector_infectivity_detail, fig.align="center", fig.cap="Total vector infectivity, year 3 only", echo = FALSE, warning=FALSE}
 
-ggplot(data = plotRho_bt, aes(x = week, y = rho_btVec)) +
-  geom_path(lwd = 1) +
-  scale_x_continuous(name = "Week", limits = c(1,52), breaks = seq(1,52,by=5)) +
-  scale_y_continuous(name = "In-field vector density") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
+kappaPlot + scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[2:3])
 
 ```
 
-\ 
 
-#### Number of new infected plants scaled by in-field vector density
-
-```{r, fig.align = "center", fig.cap = "Number of new infections scaled by vector density. Note, chronic infections were removed from figure"}
+```{r, influde = FALSE, eval = FALSE, fig.align = "center", fig.cap = "Number of new infections scaled by vector density. Note, chronic infections were removed from figure"}
 
 #### Add vector density to infection times data set
 ## rho_btVec is a vector of densities of length Tmax; as long as nrow(infectionTimes) is a multiple of Tmax, rho_btVec values will be recycled
@@ -438,15 +578,15 @@ ggplot(data = infectionTimes, aes(x = timeStep, y = scaledInfections)) +
 
 \ 
 
-#### Distribution of Infectious times
+```{r, include = FALSE, eval = FALSE, fig.align='center', fig.cap='Distribution of times (week within season) that plants became Infectious (A) or Diseased (B)'}
 
-```{r, fig.align='center', fig.cap='Distribution of times (week within season) that plants became Infectious'}
+#### Calculate mode of Disease times for each plant across simulation runs
+Inf_times <- sapply(InfectiousData1, mfv)
+plotInfectiousTimes <- data.frame(iTimes = Inf_times[Inf_times < Tmax])
 
-plotInfTimes <- data.frame(infTimes = Inf_times[Inf_times < Tmax])
-
-ggplot(plotInfTimes, aes(x = infTimes)) +
+InfTimesDistPlot <- ggplot(plotInfectiousTimes, aes(x = iTimes)) +
   geom_histogram(binwidth = 1) +
-  scale_x_continuous(name = "Infection times (weeks)") +
+  scale_x_continuous(name = "Week plant became Infectious", limits = c(0,60)) +
   scale_y_continuous(name = "Frequency") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
@@ -457,18 +597,13 @@ ggplot(plotInfTimes, aes(x = infTimes)) +
         legend.position = "none") 
 
 
-```
-
-\ 
-
-#### Distribution of Disease times
-```{r, fig.align='center', fig.cap='Distribution of times (week within season) that plants became Diseased'}
-
+#### Calculate mode of Disease times for each plant across simulation runs
+Disease_times <- sapply(DiseaseData1, mfv)
 plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
 
-ggplot(plotDiseaseTimes, aes(x = dTimes)) +
+DiseaseTimesDistPlot <- ggplot(plotDiseaseTimes, aes(x = dTimes)) +
   geom_histogram(binwidth = 1) +
-  scale_x_continuous(name = "Disease times (weeks)") +
+  scale_x_continuous(name = "Week plant became Diseased", limits = c(0,60)) +
   scale_y_continuous(name = "Frequency") +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
@@ -478,32 +613,13 @@ ggplot(plotDiseaseTimes, aes(x = dTimes)) +
         panel.background = element_blank(),
         legend.position = "none") 
 
+plot_grid(InfTimesDistPlot, DiseaseTimesDistPlot,
+          ncol = 1, nrow = 2, hjust = -0.5,
+          labels = c("A", "B"), label_size = 15)
+
 ```
 
 \ 
-
-#### Dynamics of in-field vector natural infectivity
-
-```{r, fig.align="center", fig.cap="In-field vector infectivity over time"}
-
-#### Kappa values for each time step
-plotKappa <- data.frame(kappa = c(kappaMatrix),
-                          week = 1:(Tmax*numYears))
-
-ggplot(data = plotKappa, aes(x = week, y = kappa)) +
-  geom_path(lwd = 1) +
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Week") +
-  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
 
 
 #### Relative importance of vine-to-vine spread and external infection rates over the season
@@ -515,9 +631,9 @@ plotBL <- data.frame(week = 1:Tmax,
 
 ggplot(data = plotBL, aes(x = week, y = blRatio)) +
   geom_path(colour = "black", lwd = 1) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0.5, linetype = 2) +
   scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Beta/(Beta+Epsilon)") +
+  scale_y_continuous(name = "Beta/(Beta+Epsilon)", limits = c(0,1)) +
   theme_bw(base_size=16) +
   theme(axis.line = element_line(colour = "black"),
         panel.grid.major = element_blank(),
@@ -530,7 +646,3 @@ ggplot(data = plotBL, aes(x = week, y = blRatio)) +
 \ 
 
 
-Next steps:  
-1. The parameter values are totally made up at this point. I/we would need to think about the time steps and what appropriate parameter values should look like.  
-2. I'm sure I could improve upon the damped sine wave for vector density. This is a "first pass". Suggestions would be great.  
-3. Running different simulations that we talked about in the last meeting: forcing $\epsilon$ and $\beta$ to be zero, respectively, and removing the first and second generations of immigrating vectors.

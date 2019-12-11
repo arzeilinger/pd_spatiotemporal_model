@@ -72,7 +72,7 @@ hostRecovery <- function(time, b = -0.045){
 
 ########################################################################################
 #### Function to process final Exposure times (Exp_times) into cumulative (latent) infections over time
-processLatentInfections <- function(Exp_times, numYears, Tmax, weekVector){
+processInfectionTimes <- function(Exp_times, numYears, Tmax, weekVector){
   #### Inputs
   ## Exp_times = a matrix (numPlants x numYears) of the time that each plant entered the Exposed compartment in each year
   ## numYears = scalar number of years
@@ -111,11 +111,26 @@ processLatentInfections <- function(Exp_times, numYears, Tmax, weekVector){
 ##################################################################################################################
 #### Vector overwintering infectivity decay function
 
-VOdecay <- function(kappa_b, t){
-  kappa_b*exp(-t/5)
+VOdecay <- function(kappa_b, a = 4, t){
+  kappa_b*exp(-t/a)
 }
 
 # kappa_b <- 0.6
 # t <- 1:52
-# test <- VOdecay(kappa_b, t)
+# test <- VOdecay(kappa_b, t = t)
 # qplot(t/4,test,geom="path", xlab="time", ylab="kappa_beta")
+
+
+
+##################################################################################################################
+#### Function relating seasonal time of infection and latent/incubation periods
+
+transitionPeriod <- function(a = 8, b = 26, c = 0.02, t){
+  ## Use a reparameterized quadratic function: a + bt + ct^2
+  ## At minimum, t = b, y = a
+  a + c*(t-b)^2
+}
+
+# t <- 1:52
+# test <- transitionPeriod(a = 4, b = 26, c = 0.02, t = t)
+# qplot(t/4,test,geom="path", xlab="Month", ylab="Transition period")

@@ -1,7 +1,7 @@
 #### Function to run seasonal PD model
 ## Based on model of Parry et al. (2014) PNAS
 
-seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = numYears, numPlantsRogued = numPlantsRogued, vectorOverwintering = TRUE){
+seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = numYears, numPlantsRogued = numPlantsRogued, vectorOverwintering = TRUE, verbose = TRUE){
   #### parameterList is a named list specifying the values of the following parameters:
   ## alpha = Dispersal parameter
   ## eta = Inoculation rate (LAMBDA in Parry et al.)
@@ -42,21 +42,22 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   numPlants <- nrow(Coo)
   IDs <- 1:numPlants
   #### Set up vectors to track state of each plants
-  ## Exposure times should be a matrix: rows = plants, columns = years
-  Exp_times <- matrix(Tmax, nrow = numPlants, ncol = numYears)
+  ## Exposure, Infectious, and Diseased times should be a matrix: rows = plants, columns = years
+  ## Infectious times and Diseased times are "reset" each year because each column begins the season as all Tmax
+  ExposureMatrix <- InfectiousMatrix <- DiseaseMatrix <- matrix(Tmax, nrow = numPlants, ncol = numYears)
   ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
   rho_etVec <- rho_btVec <- rep(0, Tmax)
   ## Matrix of epsilon_i(t) values
   epsilonMatrix <- betaMatrix <- matrix(0, nrow = numPlants, ncol = Tmax)
   ## Matrix of total kappa(t) values (kappa_b + kappa_e)
-  kappaMatrix <- matrix(0, nrow = Tmax, ncol = numYears)
+  kappa_b_matrix <- kappa_e_matrix <- matrix(0, nrow = Tmax, ncol = numYears)
   #### Start year loop
   for(y in 1:numYears){
-    print(paste("On year ", y, sep = ""))
+    if(verbose){
+      print(paste("On year ", y, sep = ""))
+    }
     ####################################################################################################
     #### Stochastic transitions among host compartments
-    ## (Re)set Infection times, Disease times (i.e., time of symptom onset)
-    Inf_times <- Disease_times <- rep(Tmax, numPlants)
     ## (Re)set lambda values for each plant
     lambda <- rep(0, numPlants)
     ## (Re)set Sellke thresholds for infection
@@ -68,30 +69,30 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
     ## a*s (mean) = 4; a:s (ratio) = 4:1; this ratio produces a humped distribution
     ## Parameterization assumes that time step = 1 week, will need to be adjusted if time step changes
     ## Durations of stays in Exposed compartment
-    Et <- rgamma(numPlants, shape = 4, scale = 1)
+    Exposed_noise <- rgamma(numPlants, shape = 2, scale = 1)
     ## Durations of stays in Infectious compartment
-    It <- rgamma(numPlants, shape = 4, scale = 1)
+    Infectious_noise <- rgamma(numPlants, shape = 1, scale = 0.5)
     ## In-field vector infectivity from previous year
-    kappa_b_ym1 <- kappaMatrix[Tmax, y-1]
+    kappa_b_ym1 <- ifelse(y > 1, kappa_b_matrix[Tmax, y-1], 0)
     #####################################################################################################
     #### Nested for loops of t, Susceptible plants, and Infected plants
     for(t in 1:Tmax){
       ## Each time point, update vectors of infecteds, susceptibles, and their respective indices
-      Infected_ind <- which(Inf_times < Tmax)
-      Susceptible_ind <- which(Exp_times[,y] == Tmax)
+      Infected_ind <- which(InfectiousMatrix[,y] < Tmax)
+      Susceptible_ind <- which(ExposureMatrix[,y] == Tmax)
       ## Summaries of infections and susceptibles
       numInfections <- length(Infected_ind)
       numSusceptibles <- length(Susceptible_ind)
       #######################################################################################################
       ## Loop over susceptible plants
       for(iiSusceptible in Susceptible_ind){
-        infTimeSusceptible <- Exp_times[iiSusceptible, y]
+        infTimeSusceptible <- ExposureMatrix[iiSusceptible, y]
         CooSusceptible <- Coo[iiSusceptible,1:2]
         ## (Re)set dispersal kernel summation to 0
         m <- 0
-        #### Loop over infected plants to get dispersal kernel from each Infected to a given Susceptible
+        #### Loop over Infectious (including Diseased) plants to get dispersal kernel from each Infected to a given Susceptible
         for(iInfected in Infected_ind) {
-          infTimeInfected <- Inf_times[iInfected]
+          infTimeInfected <- InfectiousMatrix[iInfected, y]
           if(infTimeSusceptible > infTimeInfected) { ## This avoids Target plant being same as Source
             ## Calculate d for each Infected plant
             d <- sum(sqrt((Coo[iInfected,1:2] - CooSusceptible)^2))
@@ -100,13 +101,14 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
             m <- m + chooseKernel(distance = d, alpha = alpha, kernelFunc = "normalized exponential")
           }
           ## Evaluate if cryptic period is exceeded
-          ## Infectious plants become Diseased when time step t exceeds Inf_times + It
+          ## Infectious plants become Diseased when time step t exceeds Infectious times + It
           ## Only update Infectious plants that aren't Diseased yet
-          if(t >= (infTimeInfected + It[iInfected]) & Disease_times[iInfected] == Tmax){
-            if(Disease_times[iInfected] < t){
+          It <- transitionPeriod(a = 2, c = 0.002, t = infTimeInfected) + Infectious_noise[iInfected]
+          if(t >= (infTimeInfected + It) & DiseaseMatrix[iInfected, y] == Tmax){
+            if(DiseaseMatrix[iInfected, y] < t){
               warning("Old disease time being updated")
             }
-            Disease_times[iInfected] <- runif(1, min = t-1, max = t)
+            DiseaseMatrix[iInfected, y] <- runif(1, min = t-1, max = t)
           }
         } # End iInfected loop
         ###############################################################################################
@@ -116,7 +118,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         if(vectorOverwintering == TRUE & y > 1){
           ## For each year after the first ...
           ## ... in-field infectivity at end of previous year contributes to external infectivity but decays exponentially as season progresses
-          kappa_e <- kappa_e0 + VOdecay(kappa_b_ym1, t)
+          kappa_e <- kappa_e0 + VOdecay(kappa_b = kappa_b_ym1, t = t)
         } else {
           kappa_e <- kappa_e0
         }
@@ -124,6 +126,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         rho_et <- vectorDensity(A = A, lambda_osc = lambda_osc, phi = phi, base = base, time = t)
         ## Save rho_et
         rho_etVec[t] <- rho_et
+        kappa_e_matrix[t, y] <- kappa_e # Save kappa_e
         ## Calculate epsilonti
         epsilonti <- eta*kappa_e*rho_et*epsilonK[iiSusceptible]
         ## Save epsilonti
@@ -137,14 +140,14 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
           kappa_b <- 0 # Initial in-field infectivity
         } else {
           ## Calculating in-field infectivity
-          Infecteds_tm1 <- sum(Inf_times < t) # Number of Infectious plants at t-1
-          Diseased_tm1 <- sum(Disease_times < t) # Number of Diseased plants at t-1
+          Infecteds_tm1 <- sum(InfectiousMatrix[,y] < t) # Number of Infectious plants at t-1
+          Diseased_tm1 <- sum(DiseaseMatrix[,y] < t) # Number of Diseased plants at t-1
           kappa_b <- (aI*Infecteds_tm1 + aD*Diseased_tm1)/numPlants # Time-dependent in-field infectivity
           ## Getting vector densities (in-field and immigrating) from previous time step
           rho_bt_tm1 <- rho_btVec[t-1]
           rho_et_tm1 <- rho_etVec[t-1]
         }
-        kappaMatrix[t,y] <- kappa_b + kappa_e # Save kappa_b + kappa_e
+        kappa_b_matrix[t,y] <- kappa_b # Save kappa_b
         ## In-field vector density
         rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
         beta_t <- eta*kappa_b*rho_btVec[t] # Calculate beta_t
@@ -154,21 +157,22 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         ## If cumulative lambda (i.e., infection pressure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
         ## then receives an infection time in range [t - 1, t]
         if(lambda[iiSusceptible] >= Q[iiSusceptible]){
-          Exp_times[iiSusceptible, y] <- runif(1, min = t-1, max = t)
+          ExposureMatrix[iiSusceptible, y] <- runif(1, min = t-1, max = t)
         }
       } # End iiSusceptible loop
       ########################################################################################
       #### Moving from Exposed to Infectious compartments
       ## Select indices of plants that are in Exposed compartment (but not Infectious compartment yet)
-      Exposed_ind <- which(Exp_times[,y] < Tmax & Inf_times == Tmax)
+      Exposed_ind <- which(ExposureMatrix[,y] < Tmax & InfectiousMatrix[,y] == Tmax)
       ## Evaluate if latent period is exceeded
-      ## Exposed plants become Infectious when time step t exceeds Exp_times + Et 
+      ## Exposed plants become Infectious when time step t exceeds Exposure time + Et 
       for(iExposed in Exposed_ind){
-        if(Inf_times[iExposed] < t){
+        if(InfectiousMatrix[iExposed, y] < t){
           warning("Old infection time incorrectly being updated")
         }
-        if(t >= Exp_times[iExposed, y] + Et[iExposed]){
-          Inf_times[iExposed] <- runif(1, min = t-1, max = t)
+        Et <- transitionPeriod(t = ExposureMatrix[iExposed, y]) + Exposed_noise[iExposed]
+        if(t >= (ExposureMatrix[iExposed, y] + Et)){
+          InfectiousMatrix[iExposed, y] <- runif(1, min = t-1, max = t)
         }
       } # End iExposed loop
     } # End t loop
@@ -180,46 +184,47 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
       #### Host recovery
       ## Base host recovery on Exposure time, rather than Infection time
       ## Get all plants that became Exposed; differs from Exposed_ind above
-      expIndices <- which(Exp_times[,y] < Tmax)
+      expIndices <- which(ExposureMatrix[,y] < Tmax)
       recoveryStatus <- probRecovery <- rep(0, length(numPlants))
       for(iExposed in expIndices){
         ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
-        probRecovery[iExposed] <- hostRecovery(Exp_times[iExposed, y]*7, b = b)
+        probRecovery[iExposed] <- hostRecovery(ExposureMatrix[iExposed, y]*7, b = b)
         recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
         ## Make sure recoveryStatus is either 0 or 1
         if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){
           warning("Something is wrong with recoveryStatus")
         }
-        ## For chronic infected plants, set Exp_times for next year to 0
+        ## For chronic infected plants, set Exposure time for next year to 0
         if(recoveryStatus[iExposed] == 0){
-          Exp_times[iExposed, y+1] <- 0
+          ExposureMatrix[iExposed, y+1] <- 0
         }
       } # End Recovery iExposed loop 
       ## Check that recovery probability calculations are working correctly
-      # recoveryCheck <- cbind(Exp_times[expIndices, c(y, y+1)], probRecovery[expIndices], recoveryStatus[expIndices])
+      # recoveryCheck <- cbind(ExposureMatrix[expIndices, c(y, y+1)], probRecovery[expIndices], recoveryStatus[expIndices])
       ###########################################################################################
       #### Roguing (removal) and replanting of diseased hosts
       ## Assume that only Diseased (i.e., symptomatic) plants are eligible for removal...
       ## ... and that all Diseased plants have equal probability of removal.
       ## Assume that managers have are limited by the total number of plants they can rogue and replant, rather than a fraction.
-      diseaseIndices <- which(Disease_times < Tmax)
+      diseaseIndices <- which(DiseaseMatrix[, y] < Tmax)
       if(length(diseaseIndices) <= numPlantsRogued){
         ## If all diseased plants are to be rogued
-        Exp_times[diseaseIndices, y+1] <- Tmax
+        ExposureMatrix[diseaseIndices, y+1] <- Tmax
       } else {
         ## Get random sub-sample of plants to rogue and replace
         roguedPlantIndices <- sample(diseaseIndices, size = numPlantsRogued, replace = FALSE)
         ## Reset Exposed times to Tmax, making them Susceptible again
-        Exp_times[roguedPlantIndices, y+1] <- Tmax
+        ExposureMatrix[roguedPlantIndices, y+1] <- Tmax
       } # End Roguing 
     } # End Winter if() statement
   } # End y loop
   resultsList <- list(Coo = Coo, # Plant coordinates
-                      Exp_times = Exp_times, # Vector of Exposure times
-                      Inf_times = Inf_times, # Vector of Infection times
-                      Disease_times = Disease_times, # Vector of Disease times
+                      ExposureMatrix = ExposureMatrix, # Vector of Exposure times
+                      InfectiousMatrix = InfectiousMatrix, # Vector of Infection times
+                      DiseaseMatrix = DiseaseMatrix, # Vector of Disease times
                       rho_btVec = rho_btVec, # In-field vector density in last year
-                      kappaMatrix = kappaMatrix, # Natural infectivity for every time step and year
+                      kappa_b_matrix = kappa_b_matrix, # In-field infectivity for every time step and year
+                      kappa_e_matrix = kappa_e_matrix, # External infectivity for every time step and year
                       epsilonMatrix = epsilonMatrix, # Epsilon for every plant and time step in last year
                       betaMatrix = betaMatrix) # Beta for every time step in last year
   return(resultsList)
