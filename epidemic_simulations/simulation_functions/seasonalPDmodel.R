@@ -15,7 +15,6 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   ## phi = Angular frequency
   ## base = Baseline vector density
   #### Vector overwintering
-  ## muv_e = Loss rate of vectors overwintering
   #### Winter recovery
   ## b = shifting recovery probability curve
   ##########################################################################################################
@@ -103,7 +102,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
           ## Evaluate if cryptic period is exceeded
           ## Infectious plants become Diseased when time step t exceeds Infectious times + It
           ## Only update Infectious plants that aren't Diseased yet
-          It <- transitionPeriod(a = 2, c = 0.002, t = infTimeInfected) + Infectious_noise[iInfected]
+          It <- transitionPeriod(a = 2, b = 26, c = 0.002, t = infTimeInfected) + Infectious_noise[iInfected]
           if(t >= (infTimeInfected + It) & DiseaseMatrix[iInfected, y] == Tmax){
             if(DiseaseMatrix[iInfected, y] < t){
               warning("Old disease time being updated")
@@ -118,7 +117,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         if(vectorOverwintering == TRUE & y > 1){
           ## For each year after the first ...
           ## ... in-field infectivity at end of previous year contributes to external infectivity but decays exponentially as season progresses
-          kappa_e <- kappa_e0 + VOdecay(kappa_b = kappa_b_ym1, t = t)
+          kappa_e <- kappa_e0 + VOdecay(kappa_b = kappa_b_ym1, a = 6, t = t)
         } else {
           kappa_e <- kappa_e0
         }
@@ -150,10 +149,10 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         kappa_b_matrix[t,y] <- kappa_b # Save kappa_b
         ## In-field vector density
         rho_btVec[t] <- (1 - muv)*(rho_bt_tm1 + rho_et_tm1) # Calculate in-field vector density
-        beta_t <- eta*kappa_b*rho_btVec[t] # Calculate beta_t
-        betaMatrix[iiSusceptible, t] <- beta_t*m # Save beta_ti
+        betati <- eta*kappa_b*rho_btVec[t]*m # Calculate beta_ti
+        betaMatrix[iiSusceptible, t] <- betati # Save beta_ti
         ## Cumulative force of infection for iiSusceptible plant
-        lambda[iiSusceptible] <- lambda[iiSusceptible] + beta_t*m + epsilonti
+        lambda[iiSusceptible] <- lambda[iiSusceptible] + betati + epsilonti
         ## If cumulative lambda (i.e., infection pressure) exceeds Q (i.e., Sellke threshold) plant becomes infected,
         ## then receives an infection time in range [t - 1, t]
         if(lambda[iiSusceptible] >= Q[iiSusceptible]){
@@ -170,7 +169,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         if(InfectiousMatrix[iExposed, y] < t){
           warning("Old infection time incorrectly being updated")
         }
-        Et <- transitionPeriod(t = ExposureMatrix[iExposed, y]) + Exposed_noise[iExposed]
+        Et <- transitionPeriod(a = 8, b = 26, c = 0.004, t = ExposureMatrix[iExposed, y]) + Exposed_noise[iExposed]
         if(t >= (ExposureMatrix[iExposed, y] + Et)){
           InfectiousMatrix[iExposed, y] <- runif(1, min = t-1, max = t)
         }

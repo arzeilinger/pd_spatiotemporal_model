@@ -1,24 +1,22 @@
 ---
 title: "Seasonal Pierce's Disease model"
 author: "Adam Zeiliinger"
-date: "11/6/2019"
+date: "12/21/19"
 output:
   html_document: default
 ---
 
-## What's new 2019-12-11
+## What's new 2019-12-21
 
 \ 
 
-Here's a new model update. I think I've covered all the pieces that we discussed last week.   
-1. Time spent in the Exposed and Infectious compartments are dependent on the time of the year that each plant enters that compartment. The latent period (time spent in Exposed compartment) is considerably longer than time spent in the Infectious compartment.  
-2. Overwintering vector infectivity (carryover) decays over the early season. Vector density does not carry over from previous year.  
-3. Simulations are include vector overwintering and no roguing, no other scenarios are considered here.  
-4. I plotted dynamics of E, I, and D compartments, total infectivity (in-field + immigrating), and beta:lambda ratio (i.e., beta/(beta + epsilon)).
+Here's a new model update. I think I've covered all the pieces that we discussed during our chat on 12/19/19.   
+1. Maximum time spent in the Exposed compartment is reduced to ~20 weeks.  
+2. Reduced baseline external vector infectivity, $\kappa_{\epsilon,0}$, to 0.05.  
+3. Modify acquisition rates, $a_I$ and $a_D$, to produce more realistic seasonal infectivity curves.  
 
 \ 
 
-Overall infection prevalence is much lower than the previous runs. I think this makes sense because the time plants spend in the Exposed compartment is much longer now, and baseline immigrating vector infectivity is lower. The dynamics of vector infectivity don't look great and don't vary much across the season, but the overall shape is about right.
 
 
 ```{r set-options, echo=FALSE, cache=FALSE}
@@ -85,7 +83,7 @@ Inf_noise <- rgamma(900, shape = 1, scale = 0.5)
 #mean(Inf_noise)
 
 testTimes <- runif(900, min = 1, max = 52)
-Exposed_time <- transitionPeriod(a = 8, c = 0.02, t = testTimes) + Exposed_noise
+Exposed_time <- transitionPeriod(a = 8, c = 0.004, t = testTimes) + Exposed_noise
 TransitionData <- data.frame(testTimes = testTimes,
                              Exposed_time = Exposed_time,
                              Infectious_time = (transitionPeriod(a = 2, c = 0.002, t = testTimes) + Inf_noise))
@@ -101,7 +99,7 @@ EtDurationsPlot <- ggplot(data = TransitionData, aes(x = testTimes/4, y = Expose
          panel.border = element_rect(colour = "black"),
          panel.background = element_blank(),
          legend.position = "none") 
-#EtDurationsPlot
+EtDurationsPlot
 
 ## Durations of stays in Infectious compartment
 ItDurationsPlot <- ggplot(data = TransitionData, aes(x = testTimes/4, y = Infectious_time)) +
@@ -185,8 +183,8 @@ vectorDensity <- function(A, lambda_osc, phi, base = 0, time){
 }
 
 timeVec <- seq(1,52,0.1)
-rho_et <- vectorDensity(A = -20, lambda_osc = 0.05, phi = 0.09, base = 0.05, time = timeVec)
-qplot(timeVec, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path")
+rho_et <- vectorDensity(A = -40, lambda_osc = 0.05, phi = 0.09, base = 0.1, time = timeVec)
+qplot(timeVec/4, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path")
 
 ```
 
@@ -253,14 +251,13 @@ Vector overwintering can be "turned on" or "turned off" with the logical flag "v
 
 ```{r vector_overwintering_decay_function, fig.align='center', fig.cap='Decay of infectivity from overwintering vectors'}
 
-VOdecay <- function(kappa_b, t){
-  #### t is divided by 5 to produce a more gradual curve; this could modified
-  kappa_b*exp(-t/5)
+VOdecay <- function(kappa_b, a = 4, t){
+  kappa_b*exp(-t/a)
 }
 
 kappa_b <- 0.6
 t <- 1:52
-test <- VOdecay(kappa_b, t)
+test <- VOdecay(kappa_b, a = 6, t = t)
 qplot(t/4,test,geom="path", xlab="month", ylab="Contribution from kappa_beta")
 
 ```
@@ -285,18 +282,17 @@ parameterList <- list(
   ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
   alpha = 10, # Dispersal parameter
   eta = 0.5, # Inoculation rate (LAMBDA in Parry et al.)
-  kappa_e0 = 0.3, # Proportion of external vectors infectious
-  aI = 0.5, # Acquisition rate from Infectious hosts
-  aD = 0.7, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
-  muv = 0.3, # In-field loss rate of vectors (due to both death and emigration)
+  kappa_e0 = 0.05, # Proportion of external vectors infectious
+  aI = 0.6, # Acquisition rate from Infectious hosts
+  aD = 0.6, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = 0.1, # In-field loss rate of vectors (due to both death and emigration)
   ### Parameter values for vectorDensity() damped sine wave
-  A = -15, # Initial amplitude
+  A = -40, # Initial amplitude
   lambda_osc = 0.05, # Dampening
   phi = 0.09, # Angular frequency
   base = 0.1, # Baseline vector density
   #### Winter recovery
-  b = -0.045, # Shifting the recovery curve
-  muv_e = 0.5 # Vector overwintering mortality
+  b = -0.045 # Shifting the recovery curve
 )
 
 ## Number of time steps; assume each time step is 1 week
@@ -317,7 +313,7 @@ nrc <- 30
 ```{r running_the_model}
 
 ## Number of simulations for each scenario
-nruns <- 20
+nruns <- 5
 
 #### Important values for processing simulations
 numPlants <- nrc^2
@@ -336,16 +332,16 @@ ExposureTimesData1 <- InfectiousTimesData1 <- DiseaseTimesData1 <- matrix(NA, nr
 kappa_b_Data1 <- kappa_e_Data1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  #print(paste("On simulation run ", i, sep = ""))
-  # simList[[i]] <- seasonalPDmodel(parameterList,
-  #                                 nrc = nrc,
-  #                                 Tmax = Tmax,
-  #                                 numYears = numYears,
-  #                                 numPlantsRogued = 0, # No roguing
-  #                                 vectorOverwintering = TRUE,
-  #                                 verbose = TRUE)
+  print(paste("On simulation run ", i, sep = ""))
+  simList[[i]] <- seasonalPDmodel(parameterList,
+                                  nrc = nrc,
+                                  Tmax = Tmax,
+                                  numYears = numYears,
+                                  numPlantsRogued = 0, # No roguing
+                                  vectorOverwintering = TRUE,
+                                  verbose = TRUE)
   # saveRDS(simList, file = "output/epidemic_simulation_test_results_list.rds")
-  simList <- readRDS("output/epidemic_simulation_test_results_list.rds")
+  # simList <- readRDS("output/epidemic_simulation_test_results_list.rds")
   #### Processing simulation results
   kappa_b_Data1[,i] <- c(simList[[i]]$kappa_b_matrix)
   kappa_e_Data1[,i] <- c(simList[[i]]$kappa_e_matrix)
@@ -546,7 +542,7 @@ The figure below shows the dynamics of vector infectivity (in-field + immigratin
 
 ```{r vector_infectivity_detail, fig.align="center", fig.cap="Total vector infectivity, year 3 only", echo = FALSE, warning=FALSE}
 
-kappaPlot + scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[2:3])
+kappaPlot + scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[3:4])
 
 ```
 

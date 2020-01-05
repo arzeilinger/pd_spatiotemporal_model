@@ -94,6 +94,7 @@ processInfectionTimes <- function(Exp_times, numYears, Tmax, weekVector){
     ## if() statement to fix the bug:
     if(all(Exp_times[,y] != 0)){
       infectionTimesList[[y]] <- rbind(c((Tmax*(y-1)), 0, 0), infectionTimesList[[y]])
+      names(infectionTimesList[[y]]) <- c("timeStep", "numInfections", "cumulInfections")
     }
   }
   ## Compile infection (exposure) times into a data frame
@@ -117,7 +118,7 @@ VOdecay <- function(kappa_b, a = 4, t){
 
 # kappa_b <- 0.6
 # t <- 1:52
-# test <- VOdecay(kappa_b, t = t)
+# test <- VOdecay(kappa_b, a = 6, t = t)
 # qplot(t/4,test,geom="path", xlab="time", ylab="kappa_beta")
 
 

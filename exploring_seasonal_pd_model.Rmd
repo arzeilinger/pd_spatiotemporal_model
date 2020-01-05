@@ -1,30 +1,28 @@
 ---
-title: "Comparing Seasonal PD Model Simulations"
+title: "Comparing Seasonal PD Model Scenarios"
 author: "Adam Zeiliinger"
-date: "11/27/2019"
+date: "12/21/19"
 output:
   html_document: default
 ---
 
 ## Comparing model runs
 
-This report compares the results of three different model scenario:  
-1. A "base model run" without vectors overwintering (i.e., no inter-annual carryover of vectors) and no roguing  
-2. Base model including vector overwintering  
-3. Base model including vector overwintering and roguing  
+This report compares the results of 4 different model scenario:  
+1. No vector overwintering (i.e., no vector infectivity carryover)  
+2. Vector overwintering included  
+3. Secondary spread ($\beta$) set to 0  
+4. Primary spread ($\epsilon$) set to 0  
 
-\ 
+Following on our last conversation, I reduced the extremes of the latent period, down to ~20 weeks (5 months). I also made the decay of overwintering vector infectivity more gradual, now approaching 0 at around 6 months.
 
-Because this is a stochastic model, we run 20 simulations of each scenario and look at summary statistics (mostly mean values) from these runs.
-
-\ 
-
-```{r setup, include = FALSE, echo=TRUE, results = FALSE}
-my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table", "modeest")
+```{r setup, include = FALSE, results = FALSE}
+my.packages <- c("ggplot2", "raster", "dplyr", "tidyr", "data.table", "modeest", "cowplot")
 lapply(my.packages, require, character.only = TRUE)
 
 #### Source Seasonal PD model function
 source("epidemic_simulations/simulation_functions/seasonalPDmodel.R")
+source("epidemic_simulations/simulation_functions/seasonalPDmodel_noepsilon.R")
 
 #### Source child functions, required to run seasonalPDModel()
 ## seasonal_vector_density_functions also includes hostRecovery() function
@@ -46,44 +44,42 @@ parameterList <- list(
   ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
   alpha = 10, # Dispersal parameter
   eta = 0.5, # Inoculation rate (LAMBDA in Parry et al.)
-  kappa_e = 0.6, # Proportion of external vectors infectious
-  aI = 0.5, # Acquisition rate from Infectious hosts
-  aD = 0.7, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
-  muv = 0.3, # In-field loss rate of vectors (due to both death and emigration)
+  kappa_e0 = 0.1, # Proportion of external vectors infectious
+  aI = 0.6, # Acquisition rate from Infectious hosts
+  aD = 0.6, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = 0.1, # In-field loss rate of vectors (due to both death and emigration)
   ### Parameter values for vectorDensity() damped sine wave
-  A = -15, # Initial amplitude
+  A = -30, # Initial amplitude
   lambda_osc = 0.05, # Dampening
   phi = 0.09, # Angular frequency
-  base = 0.1, # Baseline vector density
+  base = 0.2, # Baseline vector density
   #### Winter recovery
-  b = -0.045, # Shifting the recovery curve
-  muv_e = 0.5 # Vector overwintering mortality
+  b = -0.045 # Shifting the recovery curve
 )
 
 ## Number of time steps; assume each time step is 1 week
 Tmax <- 52
 
 ## Number of years
-numYears <- 5
+numYears <- 4
 
 ## Number of plants on a row or column
 nrc <- 30
 
+## Number of simulations for each scenario
+nruns <- 30
 
 ```
 
 \ 
 
-Each variant is run for `r numYears` years with a time step of 1 week (`r Tmax` time steps per year) on a vineyard with `r nrc` x `r nrc` = 900 plants.
+For each scenario, I ran `r nruns` simulations for `r numYears` years. Vector overwintering was turned off and on (Scenarios 1 and 2, respectively) simply using the vectorOverwintering toggle switch. Secondary spread was eliminated (Scenario 3) by setting in-field acquisition rates, $a_{I}, a_{D}$, to 0. Primary spread was eliminated (Scenario 4) by setting external vector infectivity, $\kappa_{\epsilon}$, to 0 and turning off vector overwintering. In Scenario 4, the epidemic was seeded by setting 5 random plants to the Exposed status at the beginning of each simulation. To adequately compare Scenarios 3 and 4, I set vector acquisition/infectivity parameters such that average infectivity, $\kappa_{\beta} + \kappa_{\epsilon}$, over time were equivalent between Scenarios. To achieve this, I set $\kappa_{\epsilon} = 0.05$ in Scenario 3 and $a_{I} = 0.9, a_{D} = 0.9$ in Scenario 4. 
 
 \ 
 
-## Running all three model scenarios 
+## Running all four model scenarios 
 
-```{r model_runs, echo = TRUE, results = FALSE}
-
-## Number of simulations for each scenario
-nruns <- 20
+```{r model_runs, echo = FALSE, results = FALSE}
 
 #### Important values for processing simulations
 numPlants <- nrc^2
@@ -93,198 +89,332 @@ endOfYears <- data.frame(timeStep = Tmax*1:numYears)
 ## Vector of each time step (weeks)
 weekVector <- data.frame(timeStep = timeSteps)
 
-## Create empty lists for simulation results
-sim1List <- sim2List <- sim3List <- vector("list", nruns)
-
-
 #### 1. Model run without vector overwintering or roguing
+## Create empty lists for simulation results
+sim1List <- blRatioList1 <- vector("list", nruns)
+
+#### Model run with vector overwintering and roguing
 #### Data frames of the different outputs from the simulations
-DiseaseData1 <- matrix(NA, nrow = numPlants, ncol = nruns)
-infectionTimesData1 <- kappaData1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+ExposureTimesData1 <- InfectiousTimesData1 <- DiseaseTimesData1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+kappa_b_Data1 <- kappa_e_Data1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
+  #print(paste("On simulation run ", i, sep = ""))
   # sim1List[[i]] <- seasonalPDmodel(parameterList,
-  #                                  nrc = nrc,
-  #                                  Tmax = Tmax,
-  #                                  numYears = numYears,
-  #                                  numPlantsRogued = 0, # No roguing
-  #                                  vectorOverwintering = FALSE) # No vector overwintering
-  # saveRDS(sim1List, file = "output/epidemic_simulation_scenario1_results_list.rds")
-  sim1List <- readRDS("output/epidemic_simulation_scenario1_results_list.rds")
+  #                                 nrc = nrc,
+  #                                 Tmax = Tmax,
+  #                                 numYears = numYears,
+  #                                 numPlantsRogued = 0, # No roguing
+  #                                 vectorOverwintering = FALSE,
+  #                                 verbose = FALSE)
+  # saveRDS(sim1List, file = "output/epidemic_simulation_results_scenario1.rds")
+  sim1List <- readRDS("output/epidemic_simulation_results_scenario1.rds")
   #### Processing simulation results
-  DiseaseData1[,i] <- sim1List[[i]]$Disease_times
-  kappaData1[,i] <- c(sim1List[[i]]$kappaMatrix)
-  #### Extracting and processing Exp_times results from each run
-  infTimesProcessed <- processLatentInfections(sim1List[[i]]$Exp_times, numYears, Tmax, weekVector)
+  kappa_b_Data1[,i] <- c(sim1List[[i]]$kappa_b_matrix)
+  kappa_e_Data1[,i] <- c(sim1List[[i]]$kappa_e_matrix)
+  #### Extracting and processing ExposureMatrix results from each run
+  ExpTimesProcessed <- processInfectionTimes(sim1List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
   ## Save just the cumulative infections times from each simulation, for now
-  infectionTimesData1[,i] <- infTimesProcessed$cumulInfections
+  ExposureTimesData1[,i] <- ExpTimesProcessed$cumulInfections
+  #### Extracting and processing InfectiousMatrix results from each run
+  InfTimesProcessed <- processInfectionTimes(sim1List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  InfectiousTimesData1[,i] <- InfTimesProcessed$cumulInfections
+  #### Extracting and processing DiseaseMatrix results from each run
+  DiseaseTimesProcessed <- processInfectionTimes(sim1List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  DiseaseTimesData1[,i] <- DiseaseTimesProcessed$cumulInfections
+  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+  betaMatrix <- sim1List[[i]]$betaMatrix
+  epsilonMatrix <- sim1List[[i]]$epsilonMatrix
+  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+  blRatioList1[[i]] <- as.data.frame(t(colMeans(blRatio)))
 }
 
 
 
-#### 2. Model run with vector overwintering
+
+#### Scenario 2. Model run with vector overwintering
+## Create empty lists for simulation results
+sim2List <- blRatioList2 <- vector("list", nruns)
+
+#### Model run with vector overwintering and roguing
 #### Data frames of the different outputs from the simulations
-DiseaseData2 <- matrix(NA, nrow = numPlants, ncol = nruns)
-infectionTimesData2 <- kappaData2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+ExposureTimesData2 <- InfectiousTimesData2 <- DiseaseTimesData2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+kappa_b_Data2 <- kappa_e_Data2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  # sim2List[[i]] <- seasonalPDmodel(parameterList, 
-  #                                  nrc = nrc, 
-  #                                  Tmax = Tmax, 
-  #                                  numYears = numYears, 
-  #                                  numPlantsRogued = 0, # No roguing
-  #                                  vectorOverwintering = TRUE) # Vector overwintering
-  # saveRDS(sim2List, file = "output/epidemic_simulation_scenario2_results_list.rds")
-  sim2List <- readRDS("output/epidemic_simulation_scenario2_results_list.rds")
+  #print(paste("On simulation run ", i, sep = ""))
+  # sim2List[[i]] <- seasonalPDmodel(parameterList,
+  #                                 nrc = nrc,
+  #                                 Tmax = Tmax,
+  #                                 numYears = numYears,
+  #                                 numPlantsRogued = 0, # No roguing
+  #                                 vectorOverwintering = TRUE,
+  #                                 verbose = FALSE)
+  # saveRDS(sim2List, file = "output/epidemic_simulation_results_scenario2.rds")
+  sim2List <- readRDS("output/epidemic_simulation_results_scenario2.rds")
   #### Processing simulation results
-  DiseaseData2[,i] <- sim2List[[i]]$Disease_times
-  kappaData2[,i] <- c(sim2List[[i]]$kappaMatrix)
-  #### Extracting and processing Exp_times results from each run
-  infTimesProcessed <- processLatentInfections(sim2List[[i]]$Exp_times, numYears, Tmax, weekVector)
+  kappa_b_Data2[,i] <- c(sim2List[[i]]$kappa_b_matrix)
+  kappa_e_Data2[,i] <- c(sim2List[[i]]$kappa_e_matrix)
+  #### Extracting and processing ExposureMatrix results from each run
+  ExpTimesProcessed <- processInfectionTimes(sim2List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
   ## Save just the cumulative infections times from each simulation, for now
-  infectionTimesData2[,i] <- infTimesProcessed$cumulInfections
+  ExposureTimesData2[,i] <- ExpTimesProcessed$cumulInfections
+  #### Extracting and processing InfectiousMatrix results from each run
+  InfTimesProcessed <- processInfectionTimes(sim2List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  InfectiousTimesData2[,i] <- InfTimesProcessed$cumulInfections
+  #### Extracting and processing DiseaseMatrix results from each run
+  DiseaseTimesProcessed <- processInfectionTimes(sim2List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  DiseaseTimesData2[,i] <- DiseaseTimesProcessed$cumulInfections
+  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+  betaMatrix <- sim2List[[i]]$betaMatrix
+  epsilonMatrix <- sim2List[[i]]$epsilonMatrix
+  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+  blRatioList2[[i]] <- as.data.frame(t(colMeans(blRatio)))
 }
 
 
-#### 3. Model run with vector overwintering and roguing
+#### Scenario 3. No secondary spread
+parameterList3 <- list(
+  #### Parameter values
+  ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
+  alpha = parameterList$alpha, # Dispersal parameter
+  eta = parameterList$eta, # Inoculation rate (LAMBDA in Parry et al.)
+  kappa_e0 = 0.05, # Proportion of external vectors infectious
+  aI = 0, # Acquisition rate from Infectious hosts
+  aD = 0, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = parameterList$muv, # In-field loss rate of vectors (due to both death and emigration)
+  ### Parameter values for vectorDensity() damped sine wave
+  A = parameterList$A, # Initial amplitude
+  lambda_osc = parameterList$lambda_osc, # Dampening
+  phi = parameterList$phi, # Angular frequency
+  base = parameterList$base, # Baseline vector density
+  #### Winter recovery
+  b = parameterList$b # Shifting the recovery curve
+)
+
+## Create empty lists for simulation results
+sim3List <- blRatioList3 <- vector("list", nruns)
+
+#### Model run with vector overwintering and roguing
 #### Data frames of the different outputs from the simulations
-DiseaseData3 <- matrix(NA, nrow = numPlants, ncol = nruns)
-infectionTimesData3 <- kappaData3 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+ExposureTimesData3 <- InfectiousTimesData3 <- DiseaseTimesData3 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+kappa_b_Data3 <- kappa_e_Data3 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  # sim3List[[i]] <- seasonalPDmodel(parameterList, 
-  #                                  nrc = nrc, 
-  #                                  Tmax = Tmax, 
-  #                                  numYears = numYears, 
-  #                                  numPlantsRogued = 20, # No roguing
-  #                                  vectorOverwintering = TRUE) # Vector overwintering
-  # saveRDS(sim3List, file = "output/epidemic_simulation_scenario3_results_list.rds")
-  sim3List <- readRDS("output/epidemic_simulation_scenario3_results_list.rds")
+  #print(paste("On simulation run ", i, sep = ""))
+  # sim3List[[i]] <- seasonalPDmodel(parameterList3,
+  #                                 nrc = nrc,
+  #                                 Tmax = Tmax,
+  #                                 numYears = numYears,
+  #                                 numPlantsRogued = 0, # No roguing
+  #                                 vectorOverwintering = FALSE,
+  #                                 verbose = FALSE)
+  # saveRDS(sim3List, file = "output/epidemic_simulation_results_scenario3.rds")
+  sim3List <- readRDS("output/epidemic_simulation_results_scenario3.rds")
   #### Processing simulation results
-  DiseaseData3[,i] <- sim3List[[i]]$Disease_times
-  kappaData3[,i] <- c(sim3List[[i]]$kappaMatrix)
-  #### Extracting and processing Exp_times results from each run
-  infTimesProcessed <- processLatentInfections(sim3List[[i]]$Exp_times, numYears, Tmax, weekVector)
+  kappa_b_Data3[,i] <- c(sim3List[[i]]$kappa_b_matrix)
+  kappa_e_Data3[,i] <- c(sim3List[[i]]$kappa_e_matrix)
+  #### Extracting and processing ExposureMatrix results from each run
+  ExpTimesProcessed <- processInfectionTimes(sim3List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
   ## Save just the cumulative infections times from each simulation, for now
-  infectionTimesData3[,i] <- infTimesProcessed$cumulInfections
+  ExposureTimesData3[,i] <- ExpTimesProcessed$cumulInfections
+  #### Extracting and processing InfectiousMatrix results from each run
+  InfTimesProcessed <- processInfectionTimes(sim3List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  InfectiousTimesData3[,i] <- InfTimesProcessed$cumulInfections
+  #### Extracting and processing DiseaseMatrix results from each run
+  DiseaseTimesProcessed <- processInfectionTimes(sim3List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  DiseaseTimesData3[,i] <- DiseaseTimesProcessed$cumulInfections
+  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+  betaMatrix <- sim3List[[i]]$betaMatrix
+  epsilonMatrix <- sim3List[[i]]$epsilonMatrix
+  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+  blRatioList3[[i]] <- as.data.frame(t(colMeans(blRatio)))
 }
 
+
+#### Scenario 4. No primary spread
+parameterList4 <- list(
+  #### Parameter values
+  ## In this version, epsilon and beta are functions of other parameters, define non-varying parameters here
+  alpha = parameterList$alpha, # Dispersal parameter
+  eta = parameterList$eta, # Inoculation rate (LAMBDA in Parry et al.)
+  kappa_e0 = 0, # Proportion of external vectors infectious
+  aI = 0.9, # Acquisition rate from Infectious hosts
+  aD = 0.9, # Acquisition rate from Diseased hosts; aD should be >= aI because of Xylella population growth
+  muv = parameterList$muv, # In-field loss rate of vectors (due to both death and emigration)
+  ### Parameter values for vectorDensity() damped sine wave
+  A = parameterList$A, # Initial amplitude
+  lambda_osc = parameterList$lambda_osc, # Dampening
+  phi = parameterList$phi, # Angular frequency
+  base = parameterList$base, # Baseline vector density
+  #### Winter recovery
+  b = parameterList$b # Shifting the recovery curve
+)
+
+## Create empty lists for simulation results
+sim4List <- blRatioList4 <- vector("list", nruns)
+
+#### Model run with vector overwintering and roguing
+#### Data frames of the different outputs from the simulations
+ExposureTimesData4 <- InfectiousTimesData4 <- DiseaseTimesData4 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+kappa_b_Data4 <- kappa_e_Data4 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+
+for(i in 1:nruns){
+  #print(paste("On simulation run ", i, sep = ""))
+  # sim4List[[i]] <- seasonalPDmodel_noepsilon(parameterList4,
+  #                                            nrc = nrc,
+  #                                            Tmax = Tmax,
+  #                                            numYears = numYears,
+  #                                            numPlantsRogued = 0, # No roguing
+  #                                            vectorOverwintering = FALSE,
+  #                                            verbose = FALSE)
+  # saveRDS(sim4List, file = "output/epidemic_simulation_results_scenario4.rds")
+  sim4List <- readRDS("output/epidemic_simulation_results_scenario4.rds")
+  #### Processing simulation results
+  kappa_b_Data4[,i] <- c(sim4List[[i]]$kappa_b_matrix)
+  kappa_e_Data4[,i] <- c(sim4List[[i]]$kappa_e_matrix)
+  #### Extracting and processing ExposureMatrix results from each run
+  ExpTimesProcessed <- processInfectionTimes(sim4List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  ExposureTimesData4[,i] <- ExpTimesProcessed$cumulInfections
+  #### Extracting and processing InfectiousMatrix results from each run
+  InfTimesProcessed <- processInfectionTimes(sim4List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  InfectiousTimesData4[,i] <- InfTimesProcessed$cumulInfections
+  #### Extracting and processing DiseaseMatrix results from each run
+  DiseaseTimesProcessed <- processInfectionTimes(sim4List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+  ## Save just the cumulative infections times from each simulation, for now
+  DiseaseTimesData4[,i] <- DiseaseTimesProcessed$cumulInfections
+  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+  betaMatrix <- sim4List[[i]]$betaMatrix
+  epsilonMatrix <- sim4List[[i]]$epsilonMatrix
+  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+  blRatioList4[[i]] <- as.data.frame(t(colMeans(blRatio)))
+}
 
 ```
 
 ## Model results
+#### Dynamics of diseased plants
+```{r disease_dynamics, fig.cap = "Cumulative number of diseased plants for (A) Scenario 1, no overwintering; (B) Scenario 2, overwintering; (C) Scenario 3, no secondary spread; (D) Scenario 4, no primary spread. Vertical dashed lines indicate the end of each year", fig.align = "center", fig.height=14, fig.width=14, echo = FALSE, warning=FALSE}
+
+#### Produce 4 separate plots for each scenario in a four loop
+diseaseTimesList <- list(DiseaseTimesData1, 
+                         DiseaseTimesData2,
+                         DiseaseTimesData3,
+                         DiseaseTimesData4)
+percDiseased <- rep(0, length(diseaseTimesList))
+DiseaseDynamicsPlots <- vector("list", length(diseaseTimesList))
+
+for(i in 1:length(diseaseTimesList)){
+  diseaseTimes.i <- diseaseTimesList[[i]]
+  #### Cumulative latent infection times (Exposed compartment)
+  meanTimes <- data.frame(timeStep = timeSteps,
+                          meanDiseasedPlants = rowMeans(diseaseTimes.i))
+  #### Final percentage of plants infected
+  percDiseased[i] <- 100*meanTimes[meanTimes$timeStep == max(meanTimes$timeStep), "meanDiseasedPlants"]/numPlants
+  #### Gather simulations for plotting each one as a separate line
+  plotSimsDiseased <- diseaseTimes.i %>% as.data.frame() %>%
+    mutate(timeStep = timeSteps) %>%
+    pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
+  #### Build panels
+  DiseasePlot <- ggplot(data = plotSimsDiseased, aes(x = timeStep, y = cumulInfections)) +
+    geom_path(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+    geom_path(data = meanTimes, aes(x = timeStep, y = meanDiseasedPlants), colour = "black", lwd = 2) +
+    ## Add vertical lines indicating the end of each growing season/year
+    geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+    scale_x_continuous(name = "Weeks") +
+    ggtitle("Disease times") +
+    theme_bw(base_size=14) +
+    theme(axis.line = element_line(colour = "black"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.border = element_rect(colour = "black"),
+          panel.background = element_blank(),
+          legend.position = "none")
+  ## Set the same y-axis scale limits for panels A and B (Scenarios 1 and 2) but allow other panels to vary
+  if(i <= 2){
+    DiseaseDynamicsPlots[[i]] <- DiseasePlot + 
+      scale_y_continuous(name = "Mean cumulative number", limits = c(0,300),
+                         sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants"))
+  } else {
+    DiseaseDynamicsPlots[[i]] <- DiseasePlot + 
+      scale_y_continuous(name = "Mean cumulative number",
+                         sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants"))
+  }
+}
+
+## Build multi-panel plot
+plot_grid(plotlist = DiseaseDynamicsPlots,
+          ncol = 2, nrow = 2, label_x = 0, label_y = 1, 
+          labels = c("A", "B", "C", "D"), label_size = 15)
+
+
+```
+
+\ 
+
 ### Dynamics of cumulative infections
 
-```{r, sim1_cumulative_infections, fig.align='center', fig.cap='Simulation 1. Cumulative infections', echo = FALSE}
+```{r exposure_dynamics, fig.cap = "Cumulative number of latent infections for (A) Scenario 1, no overwintering; (B) Scenario 2, overwintering; (C) Scenario 3, no secondary spread; (D) Scenario 4, no primary spread. Vertical dashed lines indicate the end of each year", fig.align = "center", fig.height=14, fig.width=14, echo = FALSE, warning=FALSE}
 
+#### Produce 4 separate plots for each scenario in a four loop
+exposureTimesList <- list(ExposureTimesData1, 
+                          ExposureTimesData2,
+                          ExposureTimesData3,
+                          ExposureTimesData4)
+ExpDynamicsPlots <- vector("list", length(exposureTimesList))
 
-#### Calculate mean exposure times across simulations
-infectionTimes <- data.frame(timeStep = timeSteps,
-                             meanInfections = rowMeans(infectionTimesData1))
-  
+for(i in 1:length(exposureTimesList)){
+  exposureTimes.i <- exposureTimesList[[i]]
+  #### Cumulative latent infection times (Exposed compartment)
+  meanTimes <- data.frame(timeStep = timeSteps,
+                          meanExposedPlants = rowMeans(exposureTimes.i),
+                          sdExposedPlants = apply(exposureTimes.i, 1, sd))
+  #### Gather simulations for plotting each one as a separate line
+  plotSimsExposures <- exposureTimes.i %>% as.data.frame() %>%
+    mutate(timeStep = timeSteps) %>%
+    pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
+  #### Build panels
+  ExpDynamicsPlot <- ggplot(data = plotSimsExposures, aes(x = timeStep, y = cumulInfections)) +
+    geom_path(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+    geom_path(data = meanTimes, aes(x = timeStep, y = meanExposedPlants), colour = "black", lwd = 2) +
+    ## Add vertical lines indicating the end of each growing season/year
+    geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+    scale_x_continuous(name = "Weeks") +
+    ggtitle("Latent infection (Exposed) times") +
+    theme_bw(base_size=14) +
+    theme(axis.line = element_line(colour = "black"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.border = element_rect(colour = "black"),
+          panel.background = element_blank(),
+          legend.position = "none")
+  if(i <= 2){
+    ExpDynamicsPlots[[i]] <- ExpDynamicsPlot + 
+      scale_y_continuous(name = "Mean cumulative number", limits = c(0,900),
+                         sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants"))
+  } else {
+    ExpDynamicsPlots[[i]] <- ExpDynamicsPlot + 
+      scale_y_continuous(name = "Mean cumulative number",
+                         sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants"))
+  }
+}
 
-#### Final percentage of plants infected
-sim1PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "meanInfections"]/numPlants
-
-#### Gather simulations for plotting each one as a separate line
-plotSims <- infectionTimesData1 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
-
-#### Plot
-infDynamicsPlot <- ggplot(data = plotSims, aes(x = timeStep, y = cumulInfections)) +
-  #geom_line()
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = infectionTimes, aes(x = timeStep, y = meanInfections), colour = "black", lwd = 2) +
-  # ## Add vertical lines indicating the end of each growing season/year
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Mean cumulative number of latent infections",
-                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants with latent infections")) +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none")
-
-infDynamicsPlot
-
-
-```
-
-
-```{r, sim2_cumulative_infections, fig.align='center', fig.cap='Simulation 2. Cumulative infections with vector overwintering', echo = FALSE}
-
-#### Calculate mean exposure times across simulations
-infectionTimes <- data.frame(timeStep = timeSteps,
-                             meanInfections = rowMeans(infectionTimesData2))
-
-#### Final percentage of plants infected
-sim2PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "meanInfections"]/numPlants
-
-#### Gather simulations for plotting each one as a separate line
-plotSims <- infectionTimesData2 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
-
-#### Plot
-infDynamicsPlot <- ggplot(data = plotSims, aes(x = timeStep, y = cumulInfections)) +
-  #geom_line()
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = infectionTimes, aes(x = timeStep, y = meanInfections), colour = "black", lwd = 2) +
-  # ## Add vertical lines indicating the end of each growing season/year
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Mean cumulative number of latent infections",
-                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants with latent infections")) +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none")
-
-infDynamicsPlot
-
-
-```
-
-
-```{r, sim3_cumulative_infections, fig.align='center', fig.cap='Simulation 3. Cumulative infections with vector overwintering and roguing', echo = FALSE}
-
-#### Calculate mean exposure times across simulations
-infectionTimes <- data.frame(timeStep = timeSteps,
-                             meanInfections = rowMeans(infectionTimesData3))
-
-#### Final percentage of plants infected
-sim3PercInfected <- 100*infectionTimes[infectionTimes$timeStep == max(infectionTimes$timeStep), "meanInfections"]/numPlants
-
-#### Gather simulations for plotting each one as a separate line
-plotSims <- infectionTimesData3 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "cumulInfections", names_prefix = "V")
-
-#### Plot
-infDynamicsPlot <- ggplot(data = plotSims, aes(x = timeStep, y = cumulInfections)) +
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = infectionTimes, aes(x = timeStep, y = meanInfections), colour = "black", lwd = 2) +
-  ## Add vertical lines indicating the end of each growing season/year
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Mean cumulative number of latent infections",
-                     sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants with latent infections")) +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none")
-
-infDynamicsPlot
+## Build multi-panel plot
+plot_grid(plotlist = ExpDynamicsPlots,
+          ncol = 2, nrow = 2, label_x = 0, label_y = 1, 
+          labels = c("A", "B", "C", "D"), label_size = 15)
 
 
 ```
@@ -293,154 +423,87 @@ infDynamicsPlot
 
 ### Dynamics of in-field vector infectivity
 
-```{r sim1_infectivity, fig.align="center", fig.cap="Simulation 1. In-field vector infectivity", echo = FALSE}
+```{r vector_infectivity, fig.align="center", fig.cap="Total vector infectivity (in-field + immigrating) for (A) Scenario 1, no overwintering; (B) Scenario 2, overwintering; (C) Scenario 3, no secondary spread; (D) Scenario 4, no primary spread. Vertical dashed lines indicate the end of each year", fig.width=14, fig.height=14, echo = FALSE, warning=FALSE}
 
-#### Kappa values for each time step
-meanKappa <- data.frame(kappa = rowMeans(kappaData1),
-                        timeStep = timeSteps)
+#### Compile kappa plots using a for loop
+## Compile kappa_b and kappa_e separately into lists
+kappa_b_list <- list(kappa_b_Data1,
+                     kappa_b_Data2,
+                     kappa_b_Data3,
+                     kappa_b_Data4)
 
-#### Gather simulations for plotting each one as a separate line
-plotKappaSims <- kappaData1 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "kappa", names_prefix = "V")
+kappa_e_list <- list(kappa_e_Data1,
+                     kappa_e_Data2,
+                     kappa_e_Data3,
+                     kappa_e_Data4)
 
+kappaDynamicsPlots <- kappaDetailPlots <- vector("list", length(kappa_b_list))
 
-ggplot(data = plotKappaSims, aes(x = timeStep, y = kappa)) +
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = meanKappa, aes(x = timeStep, y = kappa), colour = "black", lwd = 2) +
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
+meanKappa <- rep(NA, length(kappa_b_list))
 
-```
+for(i in 1:length(kappa_b_list)){
+  kappa_b_data <- kappa_b_list[[i]]
+  kappa_e_data <- kappa_e_list[[i]]
+  #### Kappa values for each time step
+  kappaData <- data.frame(timeStep = timeSteps,
+                          kappa_b = rowMeans(kappa_b_data),
+                          kappa_e = rowMeans(kappa_e_data),
+                          kappa = rowMeans(kappa_b_data) + rowMeans(kappa_e_data))
+  ## Gather simulations for plotting each one as a separate line
+  kappaDataRaw <- as.data.frame(kappa_b_data + kappa_e_data)
+  meanKappa[i] <- kappaDataRaw %>% colMeans() %>% mean()
+  plotKappaSims <- kappaDataRaw %>%
+    mutate(timeStep = timeSteps) %>%
+    pivot_longer(starts_with("V"), names_to = "simulation", values_to = "kappa", names_prefix = "V")
+  ## Plot kappa
+  kappaPlot <- ggplot(data = plotKappaSims, aes(x = timeStep, y = kappa)) +
+    geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
+    geom_path(data = kappaData, aes(x = timeStep, y = kappa), colour = "black", lwd = 2) +
+    geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
+    theme_bw(base_size=16) +
+    theme(axis.line = element_line(colour = "black"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.border = element_rect(colour = "black"),
+          panel.background = element_blank(),
+          legend.position = "none") 
+  if(i <= 4){
+    kappaDynamicsPlots[[i]] <- kappaPlot + 
+      scale_x_continuous(name = "Weeks") +
+      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,1))
+    kappaDetailPlots[[i]] <- kappaPlot + 
+      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[3:4]) +
+      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.3))
+  } else {
+    kappaDynamicsPlots[[i]] <- kappaPlot + 
+      scale_x_continuous(name = "Weeks") +
+      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.5))
+    kappaDetailPlots[[i]] <- kappaPlot + 
+      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[3:4]) +
+      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.5))
+  }
+}
 
-```{r sim2_infectivity, fig.align="center", fig.cap="Simulation 2. In-field vector infectivity over time", echo = FALSE}
+## Build multi-panel plot
+plot_grid(plotlist = kappaDynamicsPlots,
+          ncol = 2, nrow = 2, label_x = 0, label_y = 1, 
+          labels = c("A", "B", "C", "D"), label_size = 15)
 
-#### Kappa values for each time step
-meanKappa <- data.frame(kappa = rowMeans(kappaData2),
-                        timeStep = timeSteps)
-
-#### Gather simulations for plotting each one as a separate line
-plotKappaSims <- kappaData2 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "kappa", names_prefix = "V")
-
-
-ggplot(data = plotKappaSims, aes(x = timeStep, y = kappa)) +
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = meanKappa, aes(x = timeStep, y = kappa), colour = "black", lwd = 2) +
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
-
-```{r sim3_infectivity, fig.align="center", fig.cap="Simulation 3. In-field vector infectivity with vector overwintering", echo = FALSE}
-
-#### Kappa values for each time step
-meanKappa <- data.frame(kappa = rowMeans(kappaData3),
-                        timeStep = timeSteps)
-
-#### Gather simulations for plotting each one as a separate line
-plotKappaSims <- kappaData3 %>% as.data.frame() %>%
-  mutate(timeStep = timeSteps) %>%
-  pivot_longer(starts_with("V"), names_to = "simulation", values_to = "kappa", names_prefix = "V")
-
-
-ggplot(data = plotKappaSims, aes(x = timeStep, y = kappa)) +
-  geom_line(aes(group = simulation), lwd = 1, colour = "grey", alpha = 0.75) +
-  geom_path(data = meanKappa, aes(x = timeStep, y = kappa), colour = "black", lwd = 2) +
-  geom_vline(data = endOfYears, aes(xintercept = timeStep), linetype = 2) +
-  scale_x_continuous(name = "Weeks") +
-  scale_y_continuous(name = "Proportion of in-field vectors infectious") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
 
 ```
 
 \ 
 
-### Distribution of time of disease onset
+#### Vector infectivity detail
 
-```{r sim1_disease_time_distribution, fig.align='center', fig.cap='Simulation 1. Distribution of Disease times', echo = FALSE}
+The figure below shows the dynamics of vector infectivity (in-field + immigrating) for the year 4 only. Note the small y-axis scale.
 
-#### Calculate mode of Disease times for each plant across simulation runs
-Disease_times <- sapply(DiseaseData1, mfv)
-plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
+```{r vector_infectivity_detail, fig.align="center", fig.cap="Detail of total vector infectivity (in-field + immigrating) for (A) Scenario 1, no overwintering; (B) Scenario 2, overwintering; (C) Scenario 3, no secondary spread; (D) Scenario 4, no primary spread. Vertical dashed lines indicate the end of each year. Only year 3 is shown", fig.width = 14, fig.height = 14, echo = FALSE, warning=FALSE}
 
-ggplot(plotDiseaseTimes, aes(x = dTimes)) +
-  geom_histogram(binwidth = 1) +
-  scale_x_continuous(name = "Disease times (weeks)") +
-  scale_y_continuous(name = "Frequency") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
-
-```{r sim2_disease_time_distribution, fig.align='center', fig.cap='Simulation 2. Distribution of Disease times with vector overwintering', echo = FALSE}
-
-#### Calculate mode of Disease times for each plant across simulation runs
-Disease_times <- sapply(DiseaseData2, mfv)
-plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
-
-ggplot(plotDiseaseTimes, aes(x = dTimes)) +
-  geom_histogram(binwidth = 1) +
-  scale_x_continuous(name = "Disease times (weeks)") +
-  scale_y_continuous(name = "Frequency") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
-
-```
-
-
-```{r sim3_disease_time_distribution, fig.align='center', fig.cap='Simulation 3. Distribution of Disease times with vector overwintering and roguing', echo = FALSE}
-
-#### Calculate mode of Disease times for each plant across simulation runs
-Disease_times <- sapply(DiseaseData3, mfv)
-plotDiseaseTimes <- data.frame(dTimes = Disease_times[Disease_times < Tmax])
-
-ggplot(plotDiseaseTimes, aes(x = dTimes)) +
-  geom_histogram(binwidth = 1) +
-  scale_x_continuous(name = "Disease times (weeks)") +
-  scale_y_continuous(name = "Frequency") +
-  theme_bw(base_size=16) +
-  theme(axis.line = element_line(colour = "black"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = "black"),
-        panel.background = element_blank(),
-        legend.position = "none") 
+## Build multi-panel plot
+plot_grid(plotlist = kappaDetailPlots,
+          ncol = 2, nrow = 2, label_x = 0, label_y = 1, 
+          labels = c("A", "B", "C", "D"), label_size = 15)
 
 ```
 
@@ -448,12 +511,11 @@ ggplot(plotDiseaseTimes, aes(x = dTimes)) +
 
 ### Spatial patterns of Disease
 
-```{r sim1_map, fig.align='center', fig.cap='Simulation 1. Raster map of Disease patterns', echo = FALSE}
+```{r disease_maps, fig.align='center', fig.cap='Simulation 1. Raster map of Disease patterns', echo = FALSE}
 
 #### Pick a simulation at random
 randsim <- sample(1:nruns, 1)
 Coo <- sim1List[[randsim]]$Coo
-Disease_times <- sim1List[[randsim]]$Disease_times
 
 #### Produce raster with infection times as values
 ## Get raster dimensions from Coo
@@ -468,66 +530,53 @@ CooNcols <- length(unique(CooColumns))
 CooXmn <- min(CooColumns)
 CooXmx <- max(CooColumns)
 
-rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
+diseaseMatList <- list(sim1List[[randsim]]$DiseaseMatrix,
+                       sim2List[[randsim]]$DiseaseMatrix,
+                       sim3List[[randsim]]$DiseaseMatrix,
+                       sim4List[[randsim]]$DiseaseMatrix)
+diseaseList <- lapply(diseaseMatList, rowMeans)
+layerNames <- rep(NA, length(diseaseMatList))
+
+mapList <- vector("list", length(diseaseTimesList))
+for(i in 1:length(diseaseList)){
+  mapList[[i]] <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
                       ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
-                      vals = Disease_times)
-plot(rasterTimes, main = "Week of year plant became diseased")
+                      vals = diseaseList[[i]])
+  layerNames[i] <- paste("Scenario", i, sep = "_")
+}
+diseaseStack <- stack(mapList)
+names(diseaseStack) <- layerNames
+plot(diseaseStack)
 
 ```
 
+\  
 
-```{r sim2_map, fig.align='center', fig.cap='Simulation 2. Raster map of Disease patterns with vector overwintering', echo = FALSE}
+#### Relative importance of vine-to-vine spread over the season
 
-#### Pick a simulation at random
-randsim <- sample(1:nruns, 1)
-Coo <- sim2List[[randsim]]$Coo
-Disease_times <- sim2List[[randsim]]$Disease_times
+```{r beta_lambda_ratio, fig.align="center", fig.cap="Beta:Lambda ratio for (A) Scenario 1, no vector overwintering; (B) Scenario 2, vector overwintering; (C) Scenario 3, no secondary spread; (D) Scenario 4, no primary spread. Shown for the last year only, averaged over plants and simulations", fig.heigth = 7, fig.width = 7, echo = FALSE, warning=FALSE}
 
-#### Produce raster with infection times as values
-## Get raster dimensions from Coo
-## Coo[,1] = rows or y coord
-## Coo[,2] = columns or x coord
-CooRows <- Coo[,1]
-CooNrows <- length(unique(CooRows))
-CooYmn <- min(CooRows)
-CooYmx <- max(CooRows)
-CooColumns <- Coo[,2]
-CooNcols <- length(unique(CooColumns))
-CooXmn <- min(CooColumns)
-CooXmx <- max(CooColumns)
-
-rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
-                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
-                      vals = Disease_times)
-plot(rasterTimes, main = "Week of year plant became diseased")
-
-```
+plotBL <- data.frame(week = 1:Tmax,
+                     scenario1 = colMeans(rbindlist(blRatioList1)),
+                     scenario2 = colMeans(rbindlist(blRatioList2)),
+                     scenario3 = colMeans(rbindlist(blRatioList3)),
+                     scenario4 = colMeans(rbindlist(blRatioList4))) %>%
+  pivot_longer(starts_with("scenario"), names_to = "scenario", values_to = "blRatio")
 
 
-```{r sim3_map, fig.align='center', fig.cap='Simulation 3. Raster map of Disease patterns with vector overwintering', echo = FALSE}
-
-#### Pick a simulation at random
-randsim <- sample(1:nruns, 1)
-Coo <- sim3List[[randsim]]$Coo
-Disease_times <- sim3List[[randsim]]$Disease_times
-
-#### Produce raster with infection times as values
-## Get raster dimensions from Coo
-## Coo[,1] = rows or y coord
-## Coo[,2] = columns or x coord
-CooRows <- Coo[,1]
-CooNrows <- length(unique(CooRows))
-CooYmn <- min(CooRows)
-CooYmx <- max(CooRows)
-CooColumns <- Coo[,2]
-CooNcols <- length(unique(CooColumns))
-CooXmn <- min(CooColumns)
-CooXmx <- max(CooColumns)
-
-rasterTimes <- raster(nrows = CooNrows, ymn = CooYmn, ymx = CooYmx,
-                      ncols = CooNcols, xmn = CooXmn, xmx = CooXmx,
-                      vals = Disease_times)
-plot(rasterTimes, main = "Week of year plant became diseased")
+ggplot(data = plotBL, aes(x = week, y = blRatio)) +
+  geom_path(colour = "black", lwd = 1) +
+  geom_hline(yintercept = 0.5, linetype = 2) +
+  scale_x_continuous(name = "Weeks") +
+  scale_y_continuous(name = "Beta/(Beta+Epsilon)", limits = c(0,1)) +
+  facet_wrap(vars(scenario)) +
+  theme_bw(base_size=16) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        legend.position = "none") 
 
 ```
 
@@ -535,14 +584,12 @@ plot(rasterTimes, main = "Week of year plant became diseased")
 
 ## Conclusions from comparing model runs
 
-In the base model run (without vector overwintering) with 20 simulation runs, `r round(sim1PercInfected)`% of plants, on average, became latently infected by the end of `r numYears` years. There is a clear increase in infections over the years but the trajectories differ greatly among the different runs. With vector overwintering, the final percent of plants latently infected was `r round(sim2PercInfected)`%, nearly identical to the base simulation. Similarly, there is a wide variation in the trajectories of different simulation runs. So it's difficult to see differences between the scenarios without and with vector overwintering. 
+In the base model run (without vector overwintering) with 30 simulation runs, `r round(percDiseased[1])`% of plants, on average, became diseased by the end of `r numYears` years. There is a clear increase in infections over the years but the trajectories differ greatly among the different runs. With vector overwintering, the final percent of plants diseased was `r round(percDiseased[2])`%, which is close to Scenario 1. Similarly, there is a wide variation in the trajectories of different simulation runs. It seems that vector overwintering (Scenario 2) reduces variation among simulations; fewer simulations have very little disease spread.
 
-However, the scenario with roguing shows consistent differences. When 20 diseased plants were rogued, infection prevalence was mostly kept in check with only small increases from year to year, on average; the final percent of plants infected was only at `r round(sim3PercInfected)`%. 
+The dynamics of the latent infections are similar, though infection prevalence is more pronounced.
 
-Similar dynamics can be seen in the in-field vector infectivity plots.
+For dynamics of vector infectivity ($\kappa_{\beta} + \kappa_{\epsilon}$), the most marked difference between Scenarios 1 and 2 (panels A and B) is the visible slow decay of vector infectivity in the beginning of each year in Scenario 2 (with vector overwintering). However, vector overwintering contributes negligibly to overall infectivity. Infectivity in Scenario 3 (no secondary spread, panel C) is constant at $\kappa_{\epsilon}$. Infectivity in Scenario 4 (no primary spread, panel D) varies qualitatively similarly to Scenarios 1 and 2 but declines to 0 in the beginning of each year. The mean infectivity over time (and all simulations) for Scenario 4 was `r round(meanKappa[4], digits = 2)`, which is close to the constant infectivity in Scenario 3 of `r round(meanKappa[3], digits = 2)`. It's notable that to get them to be equivalent, I had to set the value in-field acquisition rates unreasonably high, to $a_{I}$ = `r parameterList4$aI` and $a_{D}$ = `r parameterList4$aD`.
 
-For the distribution of timing of disease onset, we see three peaks of disease onset throughout the growing season in the base model and with vector overwintering. With roguing, few plants become diseased (because they are removed) and the peaks are not as clear.
+For the spatial patterns of disease, Scenarios 1, 2, and 3 show clear gradients of disease from the border. Notably, in Scenario 4, no such gradient is visible; rather, diseased plants are aggregated, as would be expected when secondary spread is strong.
 
-For the spatial patterns of disease, each model run shows a gradient of disease moving from left to right. With roguing, disease remained mostly on the left border of the field.
-
-It seems that the stochasticity in the model simulations overwhelms the differences between the base model and the addition of vector overwintering. But with a relatively small amount of roguing, the epidemic was able to be effectively managed.
+Finally, the $\beta:\lambda$ ratio shows that, in Scenarios 1 and 2, secondary spread, $\beta$, drives much of the pathogen spread. The ratio is constant at 0 for Scenario 3, as expected. For Scenario 4, the ratio = 0 in the early season because I set any infinity values (i.e., when $\lambda$ = 0) to 0. Then the ratio goes to 1 when spread begins.
