@@ -54,20 +54,23 @@ parameterList <- list(
   phi = 0.09, # Angular frequency
   base = 0.2, # Baseline vector density
   #### Winter recovery
-  b = -0.045 # Shifting the recovery curve
+  b_recovery = -0.045, # Shifting the recovery curve
+  #### Defining seasonal changes in duration of Exposed compartment (latent period)
+  a_transition = 8,
+  c_transition = 0.004
 )
 
 ## Number of time steps; assume each time step is 1 week
 Tmax <- 52
 
 ## Number of years
-numYears <- 4
+numYears <- 10
 
 ## Number of plants on a row or column
 nrc <- 30
 
 ## Number of simulations for each scenario
-nruns <- 30
+nruns <- 40
 
 ```
 
@@ -99,16 +102,16 @@ ExposureTimesData1 <- InfectiousTimesData1 <- DiseaseTimesData1 <- matrix(NA, nr
 kappa_b_Data1 <- kappa_e_Data1 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  #print(paste("On simulation run ", i, sep = ""))
-  # sim1List[[i]] <- seasonalPDmodel(parameterList,
-  #                                 nrc = nrc,
-  #                                 Tmax = Tmax,
-  #                                 numYears = numYears,
-  #                                 numPlantsRogued = 0, # No roguing
-  #                                 vectorOverwintering = FALSE,
-  #                                 verbose = FALSE)
-  # saveRDS(sim1List, file = "output/epidemic_simulation_results_scenario1.rds")
-  sim1List <- readRDS("output/epidemic_simulation_results_scenario1.rds")
+  print(paste("On simulation run ", i, sep = ""))
+  sim1List[[i]] <- seasonalPDmodel(parameterList,
+                                  nrc = nrc,
+                                  Tmax = Tmax,
+                                  numYears = numYears,
+                                  numPlantsRogued = 0, # No roguing
+                                  vectorOverwintering = FALSE,
+                                  verbose = FALSE)
+  saveRDS(sim1List, file = "output/epidemic_simulation_results_scenario1.rds")
+  #sim1List <- readRDS("output/epidemic_simulation_results_scenario1.rds")
   #### Processing simulation results
   kappa_b_Data1[,i] <- c(sim1List[[i]]$kappa_b_matrix)
   kappa_e_Data1[,i] <- c(sim1List[[i]]$kappa_e_matrix)
@@ -137,46 +140,47 @@ for(i in 1:nruns){
 
 #### Scenario 2. Model run with vector overwintering
 ## Create empty lists for simulation results
-sim2List <- blRatioList2 <- vector("list", nruns)
-
-#### Model run with vector overwintering and roguing
-#### Data frames of the different outputs from the simulations
-ExposureTimesData2 <- InfectiousTimesData2 <- DiseaseTimesData2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
-kappa_b_Data2 <- kappa_e_Data2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
-
-for(i in 1:nruns){
-  #print(paste("On simulation run ", i, sep = ""))
-  # sim2List[[i]] <- seasonalPDmodel(parameterList,
-  #                                 nrc = nrc,
-  #                                 Tmax = Tmax,
-  #                                 numYears = numYears,
-  #                                 numPlantsRogued = 0, # No roguing
-  #                                 vectorOverwintering = TRUE,
-  #                                 verbose = FALSE)
-  # saveRDS(sim2List, file = "output/epidemic_simulation_results_scenario2.rds")
-  sim2List <- readRDS("output/epidemic_simulation_results_scenario2.rds")
-  #### Processing simulation results
-  kappa_b_Data2[,i] <- c(sim2List[[i]]$kappa_b_matrix)
-  kappa_e_Data2[,i] <- c(sim2List[[i]]$kappa_e_matrix)
-  #### Extracting and processing ExposureMatrix results from each run
-  ExpTimesProcessed <- processInfectionTimes(sim2List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
-  ## Save just the cumulative infections times from each simulation, for now
-  ExposureTimesData2[,i] <- ExpTimesProcessed$cumulInfections
-  #### Extracting and processing InfectiousMatrix results from each run
-  InfTimesProcessed <- processInfectionTimes(sim2List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
-  ## Save just the cumulative infections times from each simulation, for now
-  InfectiousTimesData2[,i] <- InfTimesProcessed$cumulInfections
-  #### Extracting and processing DiseaseMatrix results from each run
-  DiseaseTimesProcessed <- processInfectionTimes(sim2List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
-  ## Save just the cumulative infections times from each simulation, for now
-  DiseaseTimesData2[,i] <- DiseaseTimesProcessed$cumulInfections
-  ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
-  betaMatrix <- sim2List[[i]]$betaMatrix
-  epsilonMatrix <- sim2List[[i]]$epsilonMatrix
-  blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
-  blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
-  blRatioList2[[i]] <- as.data.frame(t(colMeans(blRatio)))
-}
+# sim2List <- blRatioList2 <- vector("list", nruns)
+# 
+# #### Model run with vector overwintering and roguing
+# #### Data frames of the different outputs from the simulations
+# ExposureTimesData2 <- InfectiousTimesData2 <- DiseaseTimesData2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+# kappa_b_Data2 <- kappa_e_Data2 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
+# 
+# sim2List <- readRDS("output/epidemic_simulation_results_scenario2.rds")
+# 
+# for(i in 1:nruns){
+#   # print(paste("On simulation run ", i, sep = ""))
+#   # sim2List[[i]] <- seasonalPDmodel(parameterList,
+#   #                                 nrc = nrc,
+#   #                                 Tmax = Tmax,
+#   #                                 numYears = numYears,
+#   #                                 numPlantsRogued = 0, # No roguing
+#   #                                 vectorOverwintering = TRUE,
+#   #                                 verbose = FALSE)
+#   # saveRDS(sim2List, file = "output/epidemic_simulation_results_scenario2.rds")
+#   #### Processing simulation results
+#   kappa_b_Data2[,i] <- c(sim2List[[i]]$kappa_b_matrix)
+#   kappa_e_Data2[,i] <- c(sim2List[[i]]$kappa_e_matrix)
+#   #### Extracting and processing ExposureMatrix results from each run
+#   ExpTimesProcessed <- processInfectionTimes(sim2List[[i]]$ExposureMatrix, numYears, Tmax, weekVector)
+#   ## Save just the cumulative infections times from each simulation, for now
+#   ExposureTimesData2[,i] <- ExpTimesProcessed$cumulInfections
+#   #### Extracting and processing InfectiousMatrix results from each run
+#   InfTimesProcessed <- processInfectionTimes(sim2List[[i]]$InfectiousMatrix, numYears, Tmax, weekVector)
+#   ## Save just the cumulative infections times from each simulation, for now
+#   InfectiousTimesData2[,i] <- InfTimesProcessed$cumulInfections
+#   #### Extracting and processing DiseaseMatrix results from each run
+#   DiseaseTimesProcessed <- processInfectionTimes(sim2List[[i]]$DiseaseMatrix, numYears, Tmax, weekVector)
+#   ## Save just the cumulative infections times from each simulation, for now
+#   DiseaseTimesData2[,i] <- DiseaseTimesProcessed$cumulInfections
+#   ## Save the ratio of beta:lambda for the last year of the simulation, averaged over plants
+#   betaMatrix <- sim2List[[i]]$betaMatrix
+#   epsilonMatrix <- sim2List[[i]]$epsilonMatrix
+#   blRatio <- betaMatrix/(betaMatrix+epsilonMatrix)
+#   blRatio <- ifelse(is.nan(blRatio), 0, blRatio) # Handle cases where lambda (beta + epsilon) == 0
+#   blRatioList2[[i]] <- as.data.frame(t(colMeans(blRatio)))
+# }
 
 
 #### Scenario 3. No secondary spread
@@ -195,7 +199,9 @@ parameterList3 <- list(
   phi = parameterList$phi, # Angular frequency
   base = parameterList$base, # Baseline vector density
   #### Winter recovery
-  b = parameterList$b # Shifting the recovery curve
+  b_recovery = parameterList$b_recovery, # Shifting the recovery curve
+  a_transition = parameterList$a_transition,
+  c_transition = parameterList$c_transition
 )
 
 ## Create empty lists for simulation results
@@ -207,16 +213,16 @@ ExposureTimesData3 <- InfectiousTimesData3 <- DiseaseTimesData3 <- matrix(NA, nr
 kappa_b_Data3 <- kappa_e_Data3 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  #print(paste("On simulation run ", i, sep = ""))
-  # sim3List[[i]] <- seasonalPDmodel(parameterList3,
-  #                                 nrc = nrc,
-  #                                 Tmax = Tmax,
-  #                                 numYears = numYears,
-  #                                 numPlantsRogued = 0, # No roguing
-  #                                 vectorOverwintering = FALSE,
-  #                                 verbose = FALSE)
-  # saveRDS(sim3List, file = "output/epidemic_simulation_results_scenario3.rds")
-  sim3List <- readRDS("output/epidemic_simulation_results_scenario3.rds")
+  print(paste("On simulation run ", i, sep = ""))
+  sim3List[[i]] <- seasonalPDmodel(parameterList3,
+                                  nrc = nrc,
+                                  Tmax = Tmax,
+                                  numYears = numYears,
+                                  numPlantsRogued = 0, # No roguing
+                                  vectorOverwintering = FALSE,
+                                  verbose = FALSE)
+  saveRDS(sim3List, file = "output/epidemic_simulation_results_scenario3.rds")
+  #sim3List <- readRDS("output/epidemic_simulation_results_scenario3.rds")
   #### Processing simulation results
   kappa_b_Data3[,i] <- c(sim3List[[i]]$kappa_b_matrix)
   kappa_e_Data3[,i] <- c(sim3List[[i]]$kappa_e_matrix)
@@ -257,7 +263,9 @@ parameterList4 <- list(
   phi = parameterList$phi, # Angular frequency
   base = parameterList$base, # Baseline vector density
   #### Winter recovery
-  b = parameterList$b # Shifting the recovery curve
+  b_recovery = parameterList$b_recovery, # Shifting the recovery curve
+  a_transition = parameterList$a_transition,
+  c_transition = parameterList$c_transition
 )
 
 ## Create empty lists for simulation results
@@ -269,16 +277,16 @@ ExposureTimesData4 <- InfectiousTimesData4 <- DiseaseTimesData4 <- matrix(NA, nr
 kappa_b_Data4 <- kappa_e_Data4 <- matrix(NA, nrow = length(timeSteps), ncol = nruns)
 
 for(i in 1:nruns){
-  #print(paste("On simulation run ", i, sep = ""))
-  # sim4List[[i]] <- seasonalPDmodel_noepsilon(parameterList4,
-  #                                            nrc = nrc,
-  #                                            Tmax = Tmax,
-  #                                            numYears = numYears,
-  #                                            numPlantsRogued = 0, # No roguing
-  #                                            vectorOverwintering = FALSE,
-  #                                            verbose = FALSE)
-  # saveRDS(sim4List, file = "output/epidemic_simulation_results_scenario4.rds")
-  sim4List <- readRDS("output/epidemic_simulation_results_scenario4.rds")
+  print(paste("On simulation run ", i, sep = ""))
+  sim4List[[i]] <- seasonalPDmodel(parameterList4,
+                                             nrc = nrc,
+                                             Tmax = Tmax,
+                                             numYears = numYears,
+                                             numPlantsRogued = 0, # No roguing
+                                             vectorOverwintering = FALSE,
+                                             verbose = FALSE)
+  saveRDS(sim4List, file = "output/epidemic_simulation_results_scenario4.rds")
+  #sim4List <- readRDS("output/epidemic_simulation_results_scenario4.rds")
   #### Processing simulation results
   kappa_b_Data4[,i] <- c(sim4List[[i]]$kappa_b_matrix)
   kappa_e_Data4[,i] <- c(sim4List[[i]]$kappa_e_matrix)
@@ -345,7 +353,7 @@ for(i in 1:length(diseaseTimesList)){
   ## Set the same y-axis scale limits for panels A and B (Scenarios 1 and 2) but allow other panels to vary
   if(i <= 2){
     DiseaseDynamicsPlots[[i]] <- DiseasePlot + 
-      scale_y_continuous(name = "Mean cumulative number", limits = c(0,300),
+      scale_y_continuous(name = "Mean cumulative number", 
                          sec.axis = sec_axis(~./numPlants, name = "Mean proportion of plants"))
   } else {
     DiseaseDynamicsPlots[[i]] <- DiseasePlot + 
@@ -472,14 +480,14 @@ for(i in 1:length(kappa_b_list)){
       scale_x_continuous(name = "Weeks") +
       scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,1))
     kappaDetailPlots[[i]] <- kappaPlot + 
-      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[3:4]) +
-      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.3))
+      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[8:9]) +
+      scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,1))
   } else {
     kappaDynamicsPlots[[i]] <- kappaPlot + 
       scale_x_continuous(name = "Weeks") +
       scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.5))
     kappaDetailPlots[[i]] <- kappaPlot + 
-      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[3:4]) +
+      scale_x_continuous(name = "Weeks", limits = endOfYears$timeStep[8:9]) +
       scale_y_continuous(name = "Proportion of vectors infectious", limits = c(0,0.5))
   }
 }

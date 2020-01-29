@@ -16,7 +16,9 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   ## base = Baseline vector density
   #### Vector overwintering
   #### Winter recovery
-  ## b = shifting recovery probability curve
+  ## b_recovery = shifting recovery probability curve
+  ## a_transition = set minimum for transition period out of Exposed compartment
+  ## c_transition = set curvature for transition period out of Exposed compartment
   ##########################################################################################################
   #### Roguing
   ## numPlantsRogued = total number of plants to rogue every year
@@ -44,6 +46,9 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
   ## Exposure, Infectious, and Diseased times should be a matrix: rows = plants, columns = years
   ## Infectious times and Diseased times are "reset" each year because each column begins the season as all Tmax
   ExposureMatrix <- InfectiousMatrix <- DiseaseMatrix <- matrix(Tmax, nrow = numPlants, ncol = numYears)
+  ## Seed the epidemic with a random set of plants as Exposed at the beginning of the simulation
+  randExp <- sample(1:numPlants, 1, replace = FALSE)
+  ExposureMatrix[randExp,1] <- 0.5 # Set infection times early but > 0
   ## Vectors of rho_epsilon(t), rho_beta(t), and beta(t) values
   rho_etVec <- rho_btVec <- rep(0, Tmax)
   ## Matrix of epsilon_i(t) values
@@ -101,8 +106,9 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
           }
           ## Evaluate if cryptic period is exceeded
           ## Infectious plants become Diseased when time step t exceeds Infectious times + It
+          ## Use default parameter values for trasitionPeriod()
           ## Only update Infectious plants that aren't Diseased yet
-          It <- transitionPeriod(a = 2, b = 26, c = 0.002, t = infTimeInfected) + Infectious_noise[iInfected]
+          It <- transitionPeriod(t = infTimeInfected) + Infectious_noise[iInfected]
           if(t >= (infTimeInfected + It) & DiseaseMatrix[iInfected, y] == Tmax){
             if(DiseaseMatrix[iInfected, y] < t){
               warning("Old disease time being updated")
@@ -169,7 +175,9 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
         if(InfectiousMatrix[iExposed, y] < t){
           warning("Old infection time incorrectly being updated")
         }
-        Et <- transitionPeriod(a = 8, b = 26, c = 0.004, t = ExposureMatrix[iExposed, y]) + Exposed_noise[iExposed]
+        Et <- transitionPeriod(a_transition = a_transition, b_transition = 26, 
+                               c_transition = c_transition, t = ExposureMatrix[iExposed, y]) + 
+          Exposed_noise[iExposed]
         if(t >= (ExposureMatrix[iExposed, y] + Et)){
           InfectiousMatrix[iExposed, y] <- runif(1, min = t-1, max = t)
         }
@@ -187,7 +195,7 @@ seasonalPDmodel <- function(parameterList, nrc = nrc, Tmax = Tmax, numYears = nu
       recoveryStatus <- probRecovery <- rep(0, length(numPlants))
       for(iExposed in expIndices){
         ## hostRecovery function is based on Feil et al. 2003 equation based on day of year; need to convert to week time step
-        probRecovery[iExposed] <- hostRecovery(ExposureMatrix[iExposed, y]*7, b = b)
+        probRecovery[iExposed] <- hostRecovery(ExposureMatrix[iExposed, y]*7, b_recovery = b_recovery)
         recoveryStatus[iExposed] <- rbinom(1, 1, probRecovery[iExposed])
         ## Make sure recoveryStatus is either 0 or 1
         if(recoveryStatus[iExposed] != 0 & recoveryStatus[iExposed] != 1){

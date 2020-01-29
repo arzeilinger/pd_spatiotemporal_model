@@ -87,11 +87,12 @@ Exposed_time <- transitionPeriod(a = 8, c = 0.004, t = testTimes) + Exposed_nois
 TransitionData <- data.frame(testTimes = testTimes,
                              Exposed_time = Exposed_time,
                              Infectious_time = (transitionPeriod(a = 2, c = 0.002, t = testTimes) + Inf_noise))
+#summary(TransitionData)
 
 EtDurationsPlot <- ggplot(data = TransitionData, aes(x = testTimes/4, y = Exposed_time)) +
   geom_point() +
   scale_x_continuous(name = "Month that plant became Exposed (infected)") +
-   scale_y_continuous(name = "Time spent in Exposed compartment (weeks)") +
+   scale_y_continuous(name = "Time spent in Exposed compartment (weeks)", limits = c(0,35)) +
    theme_bw(base_size=12) +
    theme(axis.line = element_line(colour = "black"),
          panel.grid.major = element_blank(),
@@ -183,8 +184,8 @@ vectorDensity <- function(A, lambda_osc, phi, base = 0, time){
 }
 
 timeVec <- seq(1,52,0.1)
-rho_et <- vectorDensity(A = -40, lambda_osc = 0.05, phi = 0.09, base = 0.1, time = timeVec)
-qplot(timeVec/4, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path")
+rho_et <- vectorDensity(A = -30, lambda_osc = 0.05, phi = 0.11, base = 0.2, time = timeVec)
+qplot(timeVec/4, rho_et, xlab = "Week", ylab = "Immigrating vector density", geom = "path", )
 
 ```
 
@@ -231,7 +232,7 @@ hostRecovery <- function(time, b = -0.045){
 
 timestep <- 1:365
 test <- hostRecovery(timestep, b = -0.045)
-qplot(x = timestep/7, y = test, geom = "path", xlab = "Week", ylab = "Probability of winter recovery")
+qplot(x = timestep/30, y = test, geom = "path", xlab = "Week", ylab = "Probability of winter recovery")
 
 ```
 

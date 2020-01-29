@@ -36,11 +36,11 @@ vectorDensity <- function(A, lambda_osc, phi, base = 0.0005, time){
 ##########################################################################################
 #### Winter recovery function
 ## Functional form based on Feil et al. (2003) and same as used by Gruber and Daugherty (2013)
-hostRecovery <- function(time, b = -0.045){
+hostRecovery <- function(time, b_recovery = -0.045){
   ## The curve can be shifted by modifying the value of parameter b
   ## More negative values of b shift curve to the left, less negative values shift to the right.
   ## Default value is estimate from Feil et al. 2003
-  (1 - exp(b*time))^135.9
+  (1 - exp(b_recovery*time))^135.9
 }
 
 # timestep <- 1:365
@@ -126,12 +126,12 @@ VOdecay <- function(kappa_b, a = 4, t){
 ##################################################################################################################
 #### Function relating seasonal time of infection and latent/incubation periods
 
-transitionPeriod <- function(a = 8, b = 26, c = 0.02, t){
+transitionPeriod <- function(a_transition = 2, b_transition = 26, c_transition = 0.002, t){
   ## Use a reparameterized quadratic function: a + bt + ct^2
   ## At minimum, t = b, y = a
-  a + c*(t-b)^2
+  a_transition + c_transition*(t-b_transition)^2
 }
 
 # t <- 1:52
-# test <- transitionPeriod(a = 4, b = 26, c = 0.02, t = t)
+# test <- transitionPeriod(a_transition = 4, b_transition = 26, c_transition = 0.02, t = t)
 # qplot(t/4,test,geom="path", xlab="Month", ylab="Transition period")
